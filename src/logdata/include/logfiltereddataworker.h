@@ -50,11 +50,18 @@
 #endif
 
 #include "atomicflag.h"
+#include "containers.h"
 #include "linetypes.h"
 #include "regularexpression.h"
 #include "synchronization.h"
 
 class LogData;
+
+// A list of patterns applied one after another. A line is considered matched
+// only if it satisfies every pattern in the list. Patterns with isExclude set
+// reject lines that match them, which makes it possible to express layered
+// filtering such as "include exception, then exclude NullPointerException".
+using FilterLayers = klogg::vector<RegularExpressionPattern>;
 
 // Class encapsulating a single matching line
 // Contains the line number the line was found in and its content.
@@ -130,8 +137,7 @@ class SearchOperation : public QObject {
     Q_OBJECT
 public:
     SearchOperation( const LogData& sourceLogData, AtomicFlag& interruptRequested,
-                     const RegularExpressionPattern& regExp, LineNumber startLine,
-                     LineNumber endLine );
+                     const FilterLayers& patterns, LineNumber startLine, LineNumber endLine );
 
     // Run the search operation, returns true if it has been done
     // and false if it has been cancelled (results not copied)
@@ -147,7 +153,7 @@ protected:
     void doSearch( SearchData& result, LineNumber initialLine );
 
     AtomicFlag& interruptRequested_;
-    const RegularExpressionPattern regexp_;
+    const FilterLayers patterns_;
     const LogData& sourceLogData_;
     LineNumber startLine_;
     LineNumber endLine_;
@@ -157,9 +163,8 @@ class FullSearchOperation : public SearchOperation {
     Q_OBJECT
 public:
     FullSearchOperation( const LogData& sourceLogData, AtomicFlag& interruptRequested,
-                         const RegularExpressionPattern& regExp, LineNumber startLine,
-                         LineNumber endLine )
-        : SearchOperation( sourceLogData, interruptRequested, regExp, startLine, endLine )
+                         const FilterLayers& patterns, LineNumber startLine, LineNumber endLine )
+        : SearchOperation( sourceLogData, interruptRequested, patterns, startLine, endLine )
     {
     }
 
@@ -170,9 +175,9 @@ class UpdateSearchOperation : public SearchOperation {
     Q_OBJECT
 public:
     UpdateSearchOperation( const LogData& sourceLogData, AtomicFlag& interruptRequested,
-                           const RegularExpressionPattern& regExp, LineNumber startLine,
-                           LineNumber endLine, LineNumber position )
-        : SearchOperation( sourceLogData, interruptRequested, regExp, startLine, endLine )
+                           const FilterLayers& patterns, LineNumber startLine, LineNumber endLine,
+                           LineNumber position )
+        : SearchOperation( sourceLogData, interruptRequested, patterns, startLine, endLine )
         , initialPosition_( position )
     {
     }
@@ -196,12 +201,17 @@ public:
     LogFilteredDataWorker( LogFilteredDataWorker&& ) = delete;
     LogFilteredDataWorker& operator=( LogFilteredDataWorker&& ) = delete;
 
-    // Start the search with the passed regexp
-    void search( const RegularExpressionPattern& regExp, LineNumber startLine, LineNumber endLine );
+    // Start the search with the passed filter layers, applied in order
+    void search( const FilterLayers& patterns, LineNumber startLine, LineNumber endLine );
+    // Start the search with a single pattern (compatibility helper)
+    void search( const RegularExpressionPattern& regExp, LineNumber startLine, LineNumber endLine )
+    {
+        search( FilterLayers{ regExp }, startLine, endLine );
+    }
     // Continue the previous search starting at the passed position
     // in the source file (line number)
-    void updateSearch( const RegularExpressionPattern& regExp, LineNumber startLine,
-                       LineNumber endLine, LineNumber position );
+    void updateSearch( const FilterLayers& patterns, LineNumber startLine, LineNumber endLine,
+                       LineNumber position );
 
     // Interrupts the search if one is in progress
     void interrupt();

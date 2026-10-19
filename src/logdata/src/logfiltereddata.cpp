@@ -63,7 +63,7 @@
 LogFilteredData::LogFilteredData( const LogData* logData )
     : AbstractLogData()
     , matching_lines_( SearchResultArray() )
-    , currentRegExp_()
+    , currentLayers_()
     , visibility_()
     , workerThread_( *logData )
 {
@@ -88,13 +88,35 @@ LogFilteredData::LogFilteredData( const LogData* logData )
              &LogFilteredData::handleSearchProgressedThrottled );
 }
 
-void LogFilteredData::runSearch( const RegularExpressionPattern& regExp )
+QString LogFilteredData::makeCacheKeyString( const FilterLayers& layers )
 {
-    runSearch( regExp, 0_lnum, LineNumber( getNbTotalLines().get() ) );
+    QString key;
+    for ( const auto& layer : layers ) {
+        key += QStringLiteral( "%1:%2:%3:%4:%5:" )
+                   .arg( layer.isCaseSensitive ? 1 : 0 )
+                   .arg( layer.isExclude ? 1 : 0 )
+                   .arg( layer.isBoolean ? 1 : 0 )
+                   .arg( layer.isPlainText ? 1 : 0 )
+                   .arg( layer.pattern.size() );
+        key += layer.pattern;
+    }
+    return key;
+}
+
+LogFilteredData::SearchCacheKey LogFilteredData::makeCacheKey( const FilterLayers& layers,
+                                                               LineNumber startLine,
+                                                               LineNumber endLine ) const
+{
+    return std::make_tuple( makeCacheKeyString( layers ), startLine.get(), endLine.get() );
+}
+
+void LogFilteredData::runSearch( const FilterLayers& layers )
+{
+    runSearch( layers, 0_lnum, LineNumber( getNbTotalLines().get() ) );
 }
 
 // Run the search and send newDataAvailable() signals.
-void LogFilteredData::runSearch( const RegularExpressionPattern& regExp, LineNumber startLine,
+void LogFilteredData::runSearch( const FilterLayers& layers, LineNumber startLine,
                                  LineNumber endLine )
 {
     LOG_DEBUG << "Entering runSearch";
@@ -102,10 +124,10 @@ void LogFilteredData::runSearch( const RegularExpressionPattern& regExp, LineNum
     const auto& config = Configuration::get();
 
     clearSearch();
-    currentRegExp_ = regExp;
-    currentSearchKey_ = makeCacheKey( regExp, startLine, endLine );
-    LOG_INFO << "Search cache key: " << regExp.pattern << "_" << startLine.get() << "_"
-             << endLine.get();
+    currentLayers_ = layers;
+    currentSearchKey_ = makeCacheKey( layers, startLine, endLine );
+    LOG_INFO << "Search cache key: " << std::get<0>( currentSearchKey_ ) << "_" << startLine.get()
+             << "_" << endLine.get();
 
     bool shouldRunSearch = true;
     if ( config.useSearchResultsCache() ) {
@@ -124,7 +146,7 @@ void LogFilteredData::runSearch( const RegularExpressionPattern& regExp, LineNum
 
     if ( shouldRunSearch ) {
         attachReader();
-        workerThread_.search( currentRegExp_, startLine, endLine );
+        workerThread_.search( currentLayers_, startLine, endLine );
     }
 }
 
@@ -135,7 +157,7 @@ void LogFilteredData::updateSearch( LineNumber startLine, LineNumber endLine )
     currentSearchKey_ = {};
 
     attachReader();
-    workerThread_.updateSearch( currentRegExp_, startLine, endLine,
+    workerThread_.updateSearch( currentLayers_, startLine, endLine,
                                 LineNumber( nbLinesProcessed_.get() ) );
 }
 
@@ -150,7 +172,7 @@ void LogFilteredData::clearSearch( bool dropCache )
 {
     interruptSearch();
 
-    currentRegExp_ = {};
+    currentLayers_.clear();
     matching_lines_ = {};
     marks_and_matches_ = marks_;
     maxLength_ = 0_length;
@@ -365,9 +387,9 @@ void LogFilteredData::updateSearchResultsCache()
         LOG_DEBUG << "LogFilteredData: too many matches to place in cache";
     }
     else {
-        LOG_INFO << "LogFilteredData: caching results for key "
-                 << std::get<0>( currentSearchKey_ ).pattern << "_"
-                 << std::get<1>( currentSearchKey_ ) << "_" << std::get<2>( currentSearchKey_ );
+        LOG_INFO << "LogFilteredData: caching results for key " << std::get<0>( currentSearchKey_ )
+                 << "_" << std::get<1>( currentSearchKey_ ) << "_"
+                 << std::get<2>( currentSearchKey_ );
 
         searchResultsCache_[ currentSearchKey_ ] = { matching_lines_, maxLength_ };
         auto cacheSize = std::accumulate( searchResultsCache_.cbegin(), searchResultsCache_.cend(),
@@ -504,7 +526,7 @@ klogg::vector<QString> LogFilteredData::doGetLines( LineNumber first_line, Lines
 
 // Implementation of the virtual function.
 klogg::vector<QString> LogFilteredData::doGetExpandedLines( LineNumber first_line,
-                                                          LinesCount number ) const
+                                                            LinesCount number ) const
 {
     return doGetLines( first_line, number,
                        [ this ]( const auto& line ) { return doGetExpandedLineString( line ); } );
@@ -525,9 +547,9 @@ LogFilteredData::doGetLines( LineNumber first_line, LinesCount number,
     return lines;
 }
 
-LineNumber LogFilteredData::doGetLineNumber(LineNumber index) const
+LineNumber LogFilteredData::doGetLineNumber( LineNumber index ) const
 {
-    return getMatchingLineNumber(index);
+    return getMatchingLineNumber( index );
 }
 
 // Implementation of the virtual function.

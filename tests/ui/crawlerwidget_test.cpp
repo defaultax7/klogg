@@ -35,6 +35,7 @@
 #include "logfiltereddata.h"
 
 #include "crawlerwidget.h"
+#include "filterlayerswidget.h"
 
 static const qint64 SL_NB_LINES = 100LL;
 
@@ -64,8 +65,7 @@ bool generateDataFiles( QTemporaryFile& file )
 
 } // namespace
 
-struct CrawlerWidgetPrivate {
-};
+struct CrawlerWidgetPrivate {};
 
 template <>
 struct CrawlerWidget::access_by<CrawlerWidgetPrivate> {
@@ -142,6 +142,21 @@ struct CrawlerWidget::access_by<CrawlerWidgetPrivate> {
         QTest::qWait( 100 );
 
         waitUiState( [ & ]() { return crawler->stopButton_->isHidden(); } );
+    }
+
+    void addFilterLayer( const QString& pattern, bool isExclude )
+    {
+        crawler->filterLayers_->addLayer( pattern, isExclude );
+    }
+
+    void clearFilterLayers()
+    {
+        crawler->filterLayers_->clearLayers();
+    }
+
+    int filterLayerCount() const
+    {
+        return crawler->filterLayers_->layers().size();
     }
 
     void render()
@@ -262,6 +277,77 @@ SCENARIO( "Crawler widget search", "[ui]" )
             THEN( "has lines matched" )
             {
                 REQUIRE( crawlerVisitor.getLogFilteredNbLines().get() >= 2 );
+            }
+        }
+    }
+}
+
+SCENARIO( "Crawler widget layered filtering", "[ui]" )
+{
+    QTemporaryFile file{ "crawler_layers_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    Session session;
+    session.savedSearches().clear();
+
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+
+    waitUiState( [ & ]() { return crawlerVisitor.getLogNbLines().get() == SL_NB_LINES; } );
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    GIVEN( "a search matching all lines" )
+    {
+        crawlerVisitor.setSearchPattern( "this is line" );
+        crawlerVisitor.runSearch();
+
+        REQUIRE( waitUiState( [ &crawlerVisitor ]() {
+            return crawlerVisitor.getLogFilteredNbLines().get() == SL_NB_LINES;
+        } ) );
+
+        WHEN( "an exclude layer is added" )
+        {
+            crawlerVisitor.addFilterLayer( "00000", true );
+
+            REQUIRE( waitUiState( [ &crawlerVisitor ]() {
+                return crawlerVisitor.getLogFilteredNbLines().get() == 90;
+            } ) );
+
+            THEN( "matching lines are removed from the results" )
+            {
+                REQUIRE( crawlerVisitor.getLogFilteredNbLines().get() == 90 );
+                REQUIRE( crawlerVisitor.filterLayerCount() == 1 );
+            }
+
+            AND_WHEN( "an include layer is added on top" )
+            {
+                crawlerVisitor.addFilterLayer( "000099", false );
+
+                REQUIRE( waitUiState( [ &crawlerVisitor ]() {
+                    return crawlerVisitor.getLogFilteredNbLines().get() == 1;
+                } ) );
+
+                THEN( "only lines matching every layer remain" )
+                {
+                    REQUIRE( crawlerVisitor.getLogFilteredNbLines().get() == 1 );
+                    REQUIRE( crawlerVisitor.filterLayerCount() == 2 );
+                }
+            }
+
+            AND_WHEN( "layers are cleared" )
+            {
+                crawlerVisitor.clearFilterLayers();
+
+                REQUIRE( waitUiState( [ &crawlerVisitor ]() {
+                    return crawlerVisitor.getLogFilteredNbLines().get() == SL_NB_LINES;
+                } ) );
+
+                THEN( "the base search alone is applied again" )
+                {
+                    REQUIRE( crawlerVisitor.getLogFilteredNbLines().get() == SL_NB_LINES );
+                    REQUIRE( crawlerVisitor.filterLayerCount() == 0 );
+                }
             }
         }
     }

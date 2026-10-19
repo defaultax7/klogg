@@ -20,6 +20,7 @@
 #include <catch2/catch.hpp>
 
 #include <QSignalSpy>
+#include <QStringList>
 #include <QTemporaryFile>
 #include <QTest>
 #include <QTimer>
@@ -60,6 +61,19 @@ void runSearch( LogFilteredData* filtered_data, const QString& regexp,
 
     QTimer::singleShot(
         50, [ & ]() { filtered_data->runSearch( RegularExpressionPattern( regexp ) ); } );
+
+    int progress = 0;
+    do {
+        REQUIRE( searchProgressSpy.wait() );
+        QList<QVariant> progressArgs = searchProgressSpy.last();
+        progress = progressArgs.at( 1 ).toInt();
+    } while ( progress < 100 );
+}
+
+void runSearch( LogFilteredData* filtered_data, const FilterLayers& layers,
+                SafeQSignalSpy& searchProgressSpy )
+{
+    QTimer::singleShot( 50, [ &, layers ]() { filtered_data->runSearch( layers ); } );
 
     int progress = 0;
     do {
@@ -560,6 +574,85 @@ SCENARIO( "marks and matches in filtered log data", "[logdata]" )
                     REQUIRE( filtered_data->getNbLine() == 0_lcount );
                 }
             }
+        }
+    }
+}
+
+SCENARIO( "layered filtering", "[logdata]" )
+{
+    QTemporaryFile file{ "filtered_layers_test_XXXXXX" };
+    REQUIRE( file.open() );
+
+    const auto lines = QStringList{
+        QStringLiteral( "java.lang.NullPointerException: boom" ),
+        QStringLiteral( "java.lang.RuntimeException: other" ),
+        QStringLiteral( "Exception in thread main" ),
+        QStringLiteral( "NullPointerException handled" ),
+        QStringLiteral( "no error" ),
+    };
+
+    for ( const auto& line : lines ) {
+        file.write( line.toUtf8() );
+        file.write( "\n" );
+    }
+    file.flush();
+
+    LogData log_data;
+    SafeQSignalSpy loadEndSpy( &log_data, SIGNAL( loadingFinished( LoadingStatus ) ) );
+    log_data.attachFile( file.fileName() );
+    REQUIRE( loadEndSpy.safeWait( 10000 ) );
+
+    auto filtered_data = log_data.getNewFilteredData();
+    SafeQSignalSpy searchProgressSpy{ filtered_data.get(), &LogFilteredData::searchProgressed };
+
+    GIVEN( "an include layer followed by an exclude layer" )
+    {
+        const auto includeException = RegularExpressionPattern( "Exception" );
+        const auto excludeNullPointer
+            = RegularExpressionPattern( "NullPointerException", true, true, false, false );
+
+        runSearch( filtered_data.get(), FilterLayers{ includeException, excludeNullPointer },
+                   searchProgressSpy );
+
+        THEN( "only non NullPointerException exceptions are matched" )
+        {
+            REQUIRE( filtered_data->getNbMatches() == 2_lcount );
+
+            const auto matchedLines
+                = filtered_data->getExpandedLines( 0_lnum, filtered_data->getNbMatches() );
+            REQUIRE( matchedLines.size() == 2 );
+            REQUIRE( matchedLines[ 0 ].contains( "RuntimeException" ) );
+            REQUIRE( matchedLines[ 1 ].contains( "Exception in thread" ) );
+        }
+    }
+
+    GIVEN( "two include layers" )
+    {
+        const auto includeException = RegularExpressionPattern( "Exception" );
+        const auto includeRuntime = RegularExpressionPattern( "Runtime" );
+
+        runSearch( filtered_data.get(), FilterLayers{ includeException, includeRuntime },
+                   searchProgressSpy );
+
+        THEN( "only lines matching both layers are matched" )
+        {
+            REQUIRE( filtered_data->getNbMatches() == 1_lcount );
+            REQUIRE( filtered_data->getLineString( 0_lnum ).contains( "RuntimeException" ) );
+        }
+    }
+
+    GIVEN( "an exclude layer before an include layer" )
+    {
+        const auto excludeNullPointer
+            = RegularExpressionPattern( "NullPointerException", true, true, false, false );
+        const auto includeException = RegularExpressionPattern( "Exception" );
+
+        runSearch( filtered_data.get(), FilterLayers{ excludeNullPointer, includeException },
+                   searchProgressSpy );
+
+        THEN( "layer order does not change the result" )
+        {
+            REQUIRE( filtered_data->getNbMatches() == 2_lcount );
         }
     }
 }

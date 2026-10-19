@@ -69,17 +69,28 @@ class QTimer;
 class LogFilteredData : public AbstractLogData {
     Q_OBJECT
 
-  public:
+public:
     // Constructor used by LogData
     explicit LogFilteredData( const LogData* logData );
 
     // Starts the async search, sending newDataAvailable() when new data found.
     // If a search is already in progress this function will block until
     // it is done, so the application should call interruptSearch() first.
-    void runSearch( const RegularExpressionPattern& regExp, LineNumber startLine,
-                    LineNumber endLine );
+    // Filter layers are applied in order: include layers must match, exclude
+    // layers must not match. All layers must accept a line for it to be shown.
+    void runSearch( const FilterLayers& layers, LineNumber startLine, LineNumber endLine );
     // Shortcut for runSearch on all file
-    void runSearch( const RegularExpressionPattern& regExp );
+    void runSearch( const FilterLayers& layers );
+    // Single pattern shortcuts
+    void runSearch( const RegularExpressionPattern& regExp, LineNumber startLine,
+                    LineNumber endLine )
+    {
+        runSearch( FilterLayers{ regExp }, startLine, endLine );
+    }
+    void runSearch( const RegularExpressionPattern& regExp )
+    {
+        runSearch( FilterLayers{ regExp } );
+    }
 
     // Add to the existing search, starting at the line when the search was
     // last stopped. Used when the file on disk has been added too.
@@ -137,24 +148,25 @@ class LogFilteredData : public AbstractLogData {
     Visibility visibility() const;
 
     void iterateOverLines( const std::function<void( LineNumber )>& callback ) const;
-  Q_SIGNALS:
+Q_SIGNALS:
     // Sent when the search has progressed, give the number of matches (so far)
     // and the percentage of completion
     void searchProgressed( LinesCount nbMatches, int progress, LineNumber initialLine );
     void searchProgressedThrottled();
 
-  private Q_SLOTS:
+private Q_SLOTS:
     void handleSearchProgressed( LinesCount nbMatches, int progress, LineNumber initialLine );
     void handleSearchProgressedThrottled();
 
-  private:
+private:
     // Implementation of virtual functions
     QString doGetLineString( LineNumber line ) const override;
     QString doGetExpandedLineString( LineNumber line ) const override;
     klogg::vector<QString> doGetLines( LineNumber first, LinesCount number ) const override;
     klogg::vector<QString> doGetExpandedLines( LineNumber first, LinesCount number ) const override;
-    klogg::vector<QString> doGetLines( LineNumber first, LinesCount number,
-                                     const std::function<QString( LineNumber )>& lineGetter ) const;
+    klogg::vector<QString>
+    doGetLines( LineNumber first, LinesCount number,
+                const std::function<QString( LineNumber )>& lineGetter ) const;
     LineNumber doGetLineNumber( LineNumber index ) const override;
     LinesCount doGetNbLine() const override;
     LineLength doGetMaxLength() const override;
@@ -181,7 +193,7 @@ class LogFilteredData : public AbstractLogData {
 
     const LogData* sourceLogData_;
 
-    RegularExpressionPattern currentRegExp_;
+    FilterLayers currentLayers_;
     LineLength maxLength_;
     LineLength maxLengthMarks_;
     // Number of lines of the LogData that has been searched for:
@@ -196,14 +208,15 @@ class LogFilteredData : public AbstractLogData {
 
     KDToolBox::KDSignalThrottler searchProgressThrottler_;
 
-  private:
+private:
     struct CachedSearchResult {
         SearchResultArray matching_lines;
         LineLength maxLength;
     };
 
-    using SearchCacheKey = std::tuple<RegularExpressionPattern, LineNumber::UnderlyingType,
-                                      LineNumber::UnderlyingType>;
+    // The string part is a canonical description of the filter layer stack.
+    using SearchCacheKey
+        = std::tuple<QString, LineNumber::UnderlyingType, LineNumber::UnderlyingType>;
     struct SearchCacheKeyHash {
         template <class T>
         void hash_combine( std::size_t& seed, const T& v ) const
@@ -212,12 +225,8 @@ class LogFilteredData : public AbstractLogData {
         }
         std::size_t operator()( const SearchCacheKey& k ) const
         {
-            size_t seed = qHash( std::get<0>( k ).pattern );
+            size_t seed = qHash( std::get<0>( k ) );
 
-            hash_combine( seed, std::get<0>( k ).isPlainText );
-            hash_combine( seed, std::get<0>( k ).isBoolean );
-            hash_combine( seed, std::get<0>( k ).isCaseSensitive );
-            hash_combine( seed, std::get<0>( k ).isExclude );
             hash_combine( seed, std::get<1>( k ) );
             hash_combine( seed, std::get<2>( k ) );
             return seed;
@@ -227,11 +236,9 @@ class LogFilteredData : public AbstractLogData {
     std::unordered_map<SearchCacheKey, CachedSearchResult, SearchCacheKeyHash> searchResultsCache_;
     SearchCacheKey currentSearchKey_;
 
-    SearchCacheKey makeCacheKey( const RegularExpressionPattern& regExp, LineNumber startLine,
-                                 LineNumber endLine )
-    {
-        return std::make_tuple( regExp, startLine.get(), endLine.get() );
-    }
+    static QString makeCacheKeyString( const FilterLayers& layers );
+    SearchCacheKey makeCacheKey( const FilterLayers& layers, LineNumber startLine,
+                                 LineNumber endLine ) const;
 
     void updateSearchResultsCache();
 

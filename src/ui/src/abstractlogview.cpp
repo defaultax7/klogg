@@ -556,12 +556,16 @@ void AbstractLogView::mousePressEvent( QMouseEvent* mouseEvent )
             findPreviousAction_->setEnabled( true );
             addToSearchAction_->setEnabled( true );
             replaceSearchAction_->setEnabled( true );
+            addToFilterLayersAction_->setEnabled( true );
+            excludeFromFilterLayersAction_->setEnabled( true );
         }
         else {
             findNextAction_->setEnabled( false );
             findPreviousAction_->setEnabled( false );
             addToSearchAction_->setEnabled( false );
             replaceSearchAction_->setEnabled( false );
+            addToFilterLayersAction_->setEnabled( false );
+            excludeFromFilterLayersAction_->setEnabled( false );
         }
 
         highlightersMenu_->createHighlightersMenu();
@@ -1356,6 +1360,29 @@ void AbstractLogView::excludeFromSearch()
     }
 }
 
+void AbstractLogView::addToFilterLayers()
+{
+    if ( selection_.isPortion() ) {
+        LOG_DEBUG << "AbstractLogView::addToFilterLayers()";
+        Q_EMIT addToFilterLayers( selection_.getSelectedText( logData_ ) );
+    }
+    else {
+        LOG_ERROR << "AbstractLogView::addToFilterLayers called for a wrong type of selection";
+    }
+}
+
+void AbstractLogView::excludeFromFilterLayers()
+{
+    if ( selection_.isPortion() ) {
+        LOG_DEBUG << "AbstractLogView::excludeFromFilterLayers()";
+        Q_EMIT excludeFromFilterLayers( selection_.getSelectedText( logData_ ) );
+    }
+    else {
+        LOG_ERROR
+            << "AbstractLogView::excludeFromFilterLayers called for a wrong type of selection";
+    }
+}
+
 // Find next occurrence of the selected text (*)
 void AbstractLogView::findNextSelected()
 {
@@ -2054,6 +2081,18 @@ void AbstractLogView::createMenu()
     connect( excludeFromSearchAction_, &QAction::triggered, this,
              [ this ]( auto ) { this->excludeFromSearch(); } );
 
+    addToFilterLayersAction_ = new QAction( tr( "Add as &include filter layer" ), this );
+    addToFilterLayersAction_->setStatusTip(
+        tr( "Keep only lines matching the selection, in addition to the current filters" ) );
+    connect( addToFilterLayersAction_, &QAction::triggered, this,
+             [ this ]( auto ) { this->addToFilterLayers(); } );
+
+    excludeFromFilterLayersAction_ = new QAction( tr( "Add as &exclude filter layer" ), this );
+    excludeFromFilterLayersAction_->setStatusTip(
+        tr( "Remove lines matching the selection from the current results" ) );
+    connect( excludeFromFilterLayersAction_, &QAction::triggered, this,
+             [ this ]( auto ) { this->excludeFromFilterLayers(); } );
+
     setSearchStartAction_ = new QAction( tr( "Set search start" ), this );
     connect( setSearchStartAction_, &QAction::triggered, this,
              [ this ]( auto ) { this->setSearchStart(); } );
@@ -2105,6 +2144,8 @@ void AbstractLogView::createMenu()
     popupMenu_->addAction( replaceSearchAction_ );
     popupMenu_->addAction( addToSearchAction_ );
     popupMenu_->addAction( excludeFromSearchAction_ );
+    popupMenu_->addAction( addToFilterLayersAction_ );
+    popupMenu_->addAction( excludeFromFilterLayersAction_ );
     popupMenu_->addSeparator();
     popupMenu_->addAction( setSearchStartAction_ );
     popupMenu_->addAction( setSearchEndAction_ );

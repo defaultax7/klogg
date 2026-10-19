@@ -72,6 +72,7 @@ class SavedSearches;
 class QStandardItemModel;
 class QCompleter;
 class OverviewWidget;
+class FilterLayersWidget;
 
 // Implements the central widget of the application.
 // It includes both windows, the search line, the info
@@ -82,7 +83,7 @@ class CrawlerWidget : public QSplitter,
                       public MuxableDocumentInterface {
     Q_OBJECT
 
-  public:
+public:
     CrawlerWidget( QWidget* parent = nullptr );
 
     // Get the line number of the first line displayed.
@@ -112,7 +113,7 @@ class CrawlerWidget : public QSplitter,
 
     void registerShortcuts();
 
-  public Q_SLOTS:
+public Q_SLOTS:
     // Stop the asynchoronous loading of the file if one is in progress
     // The file is identified by the view attached to it.
     void stopLoading();
@@ -127,11 +128,11 @@ class CrawlerWidget : public QSplitter,
     // Instructs the widget to reconfigure itself because Config() has changed.
     void applyConfiguration();
 
-  public:
+public:
     template <class T>
     struct access_by;
 
-  protected:
+protected:
     // Implementation of the ViewInterface functions
     void doSetData( std::shared_ptr<LogData> logData,
                     std::shared_ptr<LogFilteredData> filteredData ) override;
@@ -150,7 +151,7 @@ class CrawlerWidget : public QSplitter,
 
     void changeEvent( QEvent* event ) override;
 
-  Q_SIGNALS:
+Q_SIGNALS:
     // Sent to signal the client load has progressed,
     // passing the completion percentage.
     void loadingProgressed( int progress );
@@ -184,7 +185,7 @@ class CrawlerWidget : public QSplitter,
     // Sent up when the current filtered view has been changed
     void filteredViewChanged();
 
-  private Q_SLOTS:
+private Q_SLOTS:
     // Instructs the widget to start a search using the current search line.
     void startNewSearch();
     // Stop the currently ongoing search (if one exists)
@@ -243,6 +244,12 @@ class CrawlerWidget : public QSplitter,
     // works only in boolean combination mode
     void excludeFromSearch( const QString& string );
 
+    // Called when a filter layer has been added, removed or toggled
+    void filterLayersChanged();
+    // Add the selection as an include/exclude filter layer
+    void addFilterLayer( const QString& string );
+    void excludeFromFilterLayers( const QString& string );
+
     void clearSearchHistory();
     void editSearchHistory();
 
@@ -266,15 +273,15 @@ class CrawlerWidget : public QSplitter,
     void addNextColorLabelToSelection();
     void clearColorLabels();
 
-    void changeFilteredView(int tabIndex);
-    void closeFilteredView(int tabIndex);
-    void filteredViewDestroyed(QObject* view);
+    void changeFilteredView( int tabIndex );
+    void closeFilteredView( int tabIndex );
+    void filteredViewDestroyed( QObject* view );
 
-  private:
+private:
     // State machine holding the state of the search, used to allow/disallow
     // auto-refresh and inform the user via the info line.
     class SearchState {
-      public:
+    public:
         enum State {
             NoSearch,
             Static,
@@ -317,7 +324,7 @@ class CrawlerWidget : public QSplitter,
             return ( state_ == FileTruncated || state_ == TruncatedAutorefreshing );
         }
 
-      private:
+    private:
         State state_;
         bool autoRefreshRequested_;
     };
@@ -341,11 +348,17 @@ class CrawlerWidget : public QSplitter,
     QString& combinePatterns( QString& currentPattern, const QString& newPattern ) const;
     void setSearchPattern( const QString& searchPattern );
 
+    // Build the complete filter stack from the search line and the additional
+    // filter layers. Returns false and sets errorString if a pattern is invalid.
+    bool buildFilterLayers( const QString& basePattern, FilterLayers& layers,
+                            QString& errorString ) const;
+    void updateFilteredViewTitle();
+
     void resetStateOnSearchPatternChanges();
 
     void updateColorLabels( const ColorLabelsManager::QuickHighlightersCollection& labels );
 
-    void connectAllFilteredViewSlots( FilteredView* view);
+    void connectAllFilteredViewSlots( FilteredView* view );
 
     void saveSplitterSizes() const;
 
@@ -381,6 +394,7 @@ class CrawlerWidget : public QSplitter,
     QComboBox* searchLineEdit_;
     QMenu* searchLineContextMenu_;
     QCompleter* searchLineCompleter_;
+    FilterLayersWidget* filterLayers_;
 
     InfoLine* searchInfoLine_;
 

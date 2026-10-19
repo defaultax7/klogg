@@ -67,6 +67,35 @@ Following logic operations are supported:
 |`\|`             |Similar to OR but with left to right expression short circuiting optimization   |
 |`not`           |Logical NOT, Negate the logical sense of the input. Input must be enclosed in `()` (eg: `not("x")`)|
 
+### Filter layers
+
+For searches that are built up in several steps, *klogg* supports layered filter
+in addition to a single expression. The main search is the first layer, and any
+number of additional include or exclude layers can be applied on top of it.
+
+Additional layers are added from the `Additional filter layers` panel below the
+search input:
+
+* enter a pattern in the text field
+* choose `Include` to keep only lines matching the pattern or `Exclude` to
+  remove lines matching the pattern
+* click `Add` (or press Enter)
+
+Each added layer is displayed in the list. It can be temporarily disabled with
+its check box, removed with the `x` button, or all layers can be dropped with
+`Clear`. Changing the layer list reruns the search using the current main search
+plus all enabled layers.
+
+As an example, to find all exceptions except null pointer exceptions:
+
+1. enter `Exception` in the search input and press Enter
+2. enter `NullPointerException` in the filter layer input, select `Exclude`, and
+   press Enter
+
+The same operations are available in the log view context menu. Select a text
+fragment and use `Add as include filter layer` or `Add as exclude filter layer`
+to refine the current results from what is visible in the log.
+
 *klogg* keeps track of used search patterns and provides autocomplete
 for them. This history can be edited or cleared from the search text box context menu.
 Autocomplete is case-sensitive if this option is selected for matching 

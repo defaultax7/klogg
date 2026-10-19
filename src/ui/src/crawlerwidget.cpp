@@ -71,6 +71,7 @@
 
 #include "configuration.h"
 #include "dispatch_to.h"
+#include "filterlayerswidget.h"
 #include "fontutils.h"
 #include "infoline.h"
 #include "quickfindpattern.h"
@@ -396,8 +397,7 @@ void CrawlerWidget::startNewSearch()
         applyConfiguration();
     }
 
-    tabbedFilteredView_->setTabText( tabbedFilteredView_->currentIndex(),
-                                     "Find \"" + searchLineEdit_->currentText() + "\"" );
+    updateFilteredViewTitle();
 
     // Record the search line in the recent list
     // (reload the list first in case another glogg changed it)
@@ -885,6 +885,43 @@ void CrawlerWidget::addToSearch( const QString& searchString )
     setSearchPattern( combinePatterns( currentPattern, newPattern ) );
 }
 
+void CrawlerWidget::filterLayersChanged()
+{
+    replaceCurrentSearch( searchLineEdit_->currentText() );
+    updateFilteredViewTitle();
+}
+
+void CrawlerWidget::addFilterLayer( const QString& string )
+{
+    filterLayers_->addLayer( string, false );
+}
+
+void CrawlerWidget::excludeFromFilterLayers( const QString& string )
+{
+    filterLayers_->addLayer( string, true );
+}
+
+void CrawlerWidget::updateFilteredViewTitle()
+{
+    if ( tabbedFilteredView_ == nullptr || tabbedFilteredView_->currentIndex() < 0 ) {
+        return;
+    }
+
+    QString title = searchLineEdit_->currentText().isEmpty()
+                        ? tr( "Filtered results" )
+                        : tr( "Find \"%1\"" ).arg( searchLineEdit_->currentText() );
+
+    const auto& layers = filterLayers_->layers();
+    const auto enabledLayers
+        = std::count_if( layers.cbegin(), layers.cend(),
+                         []( const FilterLayer& layer ) { return layer.isEnabled; } );
+    if ( enabledLayers > 0 ) {
+        title += tr( " +%1 filter(s)" ).arg( enabledLayers );
+    }
+
+    tabbedFilteredView_->setTabText( tabbedFilteredView_->currentIndex(), title );
+}
+
 void CrawlerWidget::excludeFromSearch( const QString& searchString )
 {
     QString currentPattern = searchLineEdit_->currentText();
@@ -1123,6 +1160,7 @@ void CrawlerWidget::setup()
     stopButton_->setContentsMargins( 2, 2, 2, 2 );
 
     predefinedFilters_ = new PredefinedFiltersComboBox( this );
+    filterLayers_ = new FilterLayersWidget( this );
 
     auto* searchLineLayout = new QHBoxLayout;
     searchLineLayout->setContentsMargins( 2, 2, 2, 2 );
@@ -1150,6 +1188,7 @@ void CrawlerWidget::setup()
 
     auto* bottomMainLayout = new QVBoxLayout;
     bottomMainLayout->addLayout( searchLineLayout );
+    bottomMainLayout->addWidget( filterLayers_ );
     bottomMainLayout->addWidget( tabbedFilteredView_ );
     bottomMainLayout->setContentsMargins( 2, 2, 2, 2 );
     bottomWindow->setLayout( bottomMainLayout );
@@ -1188,6 +1227,9 @@ void CrawlerWidget::setup()
     connect( predefinedFilters_, &PredefinedFiltersComboBox::filterChanged, this,
              &CrawlerWidget::setSearchPatternFromPredefinedFilters );
 
+    connect( filterLayers_, &FilterLayersWidget::layersChanged, this,
+             &CrawlerWidget::filterLayersChanged );
+
     connect( searchLineEdit_, &QWidget::customContextMenuRequested, this,
              &CrawlerWidget::showSearchContextMenu );
     connect( saveAsPredefinedFilterAction, &QAction::triggered, this,
@@ -1219,6 +1261,12 @@ void CrawlerWidget::setup()
 
     connect( logMainView_, QOverload<const QString&>::of( &LogMainView::excludeFromSearch ), this,
              &CrawlerWidget::excludeFromSearch );
+
+    connect( logMainView_, QOverload<const QString&>::of( &LogMainView::addToFilterLayers ), this,
+             &CrawlerWidget::addFilterLayer );
+
+    connect( logMainView_, QOverload<const QString&>::of( &LogMainView::excludeFromFilterLayers ),
+             this, &CrawlerWidget::excludeFromFilterLayers );
 
     connect( logMainView_, QOverload<const QString&>::of( &LogMainView::replaceSearch ), this,
              &CrawlerWidget::replaceSearch );
@@ -1377,6 +1425,12 @@ void CrawlerWidget::connectAllFilteredViewSlots( FilteredView* view )
 
     connect( view, QOverload<const QString&>::of( &FilteredView::excludeFromSearch ), this,
              &CrawlerWidget::excludeFromSearch );
+
+    connect( view, QOverload<const QString&>::of( &FilteredView::addToFilterLayers ), this,
+             &CrawlerWidget::addFilterLayer );
+
+    connect( view, QOverload<const QString&>::of( &FilteredView::excludeFromFilterLayers ), this,
+             &CrawlerWidget::excludeFromFilterLayers );
 
     connect( view, QOverload<const QString&>::of( &FilteredView::replaceSearch ), this,
              &CrawlerWidget::replaceSearch );
@@ -1556,6 +1610,52 @@ void CrawlerWidget::loadIcons()
     stopButton_->setIcon( iconLoader_.load( "icons8-close-window" ) );
 }
 
+bool CrawlerWidget::buildFilterLayers( const QString& basePattern, FilterLayers& layers,
+                                       QString& errorString ) const
+{
+    layers.clear();
+    errorString.clear();
+
+    const auto validateLayer = [ &errorString, &layers ]( const RegularExpressionPattern& pattern,
+                                                          const QString& source ) {
+        RegularExpression expression{ pattern };
+        if ( !expression.isValid() ) {
+            errorString = QStringLiteral( "%1: %2" ).arg( source, expression.errorString() );
+            return false;
+        }
+        layers.push_back( pattern );
+        return true;
+    };
+
+    if ( !basePattern.isEmpty() ) {
+        const auto baseLayer = RegularExpressionPattern(
+            basePattern, matchCaseButton_->isChecked(), inverseButton_->isChecked(),
+            booleanButton_->isChecked(), !useRegexpButton_->isChecked() );
+        if ( !validateLayer( baseLayer, tr( "main search" ) ) ) {
+            return false;
+        }
+    }
+
+    for ( auto index = 0; index < filterLayers_->layers().size(); ++index ) {
+        const auto& layer = filterLayers_->layers().at( index );
+        if ( !layer.isEnabled || layer.pattern.isEmpty() ) {
+            continue;
+        }
+
+        // Additional layers are independent patterns. Their include/exclude
+        // role is stored in the layer itself, so nested boolean expressions
+        // are not used here.
+        const auto layerPattern
+            = RegularExpressionPattern( layer.pattern, matchCaseButton_->isChecked(),
+                                        layer.isExclude, false, !useRegexpButton_->isChecked() );
+        if ( !validateLayer( layerPattern, tr( "filter layer %1" ).arg( index + 1 ) ) ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 // Create a new search using the text passed, replace the currently
 // used one and destroy the old one.
 void CrawlerWidget::replaceCurrentSearch( const QString& searchText )
@@ -1588,57 +1688,50 @@ void CrawlerWidget::replaceCurrentSearch( const QString& searchText )
     // Update the match overview
     overview_.updateData( logData_->getNbLine() );
 
-    if ( !searchText.isEmpty() ) {
+    FilterLayers layers;
+    QString errorString;
+    const auto filtersAreValid = buildFilterLayers( searchText, layers, errorString );
 
-        // Constructs the regexp
-        auto regexpPattern = RegularExpressionPattern(
-            searchText, matchCaseButton_->isChecked(), inverseButton_->isChecked(),
-            booleanButton_->isChecked(), !useRegexpButton_->isChecked() );
+    if ( filtersAreValid && !layers.empty() ) {
+        // Activate the stop button
+        stopButton_->setEnabled( true );
+        stopButton_->show();
+        clearButton_->hide();
+        searchButton_->hide();
+        // Start a new asynchronous search with the complete filter stack
+        logFilteredData_->runSearch( layers, searchStartLine_, searchEndLine_ );
+        // Accept auto-refresh of the search
+        searchState_.startSearch();
+        searchInfoLine_->hide();
 
-        RegularExpression hsExpression{ regexpPattern };
-        auto isValidExpression = hsExpression.isValid();
+        // Only the main search can be highlighted in the log views. Extra
+        // layers affect which lines are visible, but are not highlighted.
+        const auto basePattern = searchText.isEmpty() ? RegularExpressionPattern{} : layers.front();
+        logMainView_->setSearchPattern( basePattern );
+        filteredView_->setSearchPattern( basePattern );
+    }
+    else if ( !filtersAreValid ) {
+        // One of the filter patterns is wrong
+        logFilteredData_->clearSearch();
+        filteredView_->updateData();
+        searchState_.resetState();
 
-        if ( isValidExpression ) {
-            // Activate the stop button
-            stopButton_->setEnabled( true );
-            stopButton_->show();
-            clearButton_->hide();
-            searchButton_->hide();
-            // Start a new asynchronous search
-            logFilteredData_->runSearch( regexpPattern, searchStartLine_, searchEndLine_ );
-            // Accept auto-refresh of the search
-            searchState_.startSearch();
-            searchInfoLine_->hide();
-            logMainView_->setSearchPattern( regexpPattern );
-            filteredView_->setSearchPattern( regexpPattern );
-        }
-        else {
-            // The regexp is wrong
-            logFilteredData_->clearSearch();
-            filteredView_->updateData();
-            searchState_.resetState();
+        // Inform the user
+        QString errorMessage = tr( "Error in expression" );
+        errorMessage += ": ";
+        errorMessage += errorString;
+        searchInfoLine_->setPalette( ErrorPalette );
+        searchInfoLine_->setText( errorMessage );
+        searchInfoLine_->show();
 
-            // Inform the user
-            QString errorString = hsExpression.errorString();
-            QString errorMessage = tr( "Error in expression" );
-            // const int offset = regexp.patternErrorOffset();
-            // if ( offset != -1 ) {
-            //     errorMessage += " at position ";
-            //     errorMessage += QString::number( offset );
-            // }
-            errorMessage += ": ";
-            errorMessage += errorString;
-            searchInfoLine_->setPalette( ErrorPalette );
-            searchInfoLine_->setText( errorMessage );
-            searchInfoLine_->show();
-
-            logMainView_->setSearchPattern( {} );
-            filteredView_->setSearchPattern( {} );
-        }
+        logMainView_->setSearchPattern( {} );
+        filteredView_->setSearchPattern( {} );
     }
     else {
         searchState_.resetState();
         printSearchInfoMessage();
+        logMainView_->setSearchPattern( {} );
+        filteredView_->setSearchPattern( {} );
     }
 }
 

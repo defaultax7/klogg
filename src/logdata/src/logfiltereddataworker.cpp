@@ -36,9 +36,11 @@
  * along with klogg.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <exception>
+#include <memory>
 #include <qsemaphore.h>
 #include <utility>
 
@@ -96,8 +98,54 @@ struct SearchBlockData {
     PartialSearchResults searchResults;
 };
 
-PartialSearchResults filterLines( const PatternMatcher& matcher, const LogData::RawLines& rawLines,
-                                  LineNumber chunkStart )
+// Matches a line against a stack of filters. Every layer must accept the line:
+// include layers must match, exclude layers must not match. Filter layers are
+// evaluated in the order they were added and stop at the first rejection.
+class LayeredPatternMatcher {
+public:
+    explicit LayeredPatternMatcher( const FilterLayers& layers )
+    {
+        matchers_.reserve( layers.size() );
+
+        for ( const auto& layer : layers ) {
+            if ( layer.pattern.isEmpty() ) {
+                continue;
+            }
+
+            RegularExpression expression{ layer };
+            matchers_.push_back( expression.createMatcher() );
+        }
+    }
+
+    LayeredPatternMatcher( const LayeredPatternMatcher& ) = delete;
+    LayeredPatternMatcher& operator=( const LayeredPatternMatcher& ) = delete;
+
+    LayeredPatternMatcher( LayeredPatternMatcher&& ) = default;
+    LayeredPatternMatcher& operator=( LayeredPatternMatcher&& ) = default;
+
+    bool hasMatch( std::string_view line ) const
+    {
+        if ( matchers_.empty() ) {
+            return false;
+        }
+
+        // PatternMatcher already inverts excluded layers, so every layer can
+        // be checked uniformly as an AND condition.
+        return std::all_of( matchers_.cbegin(), matchers_.cend(),
+                            [ line ]( const auto& matcher ) { return matcher->hasMatch( line ); } );
+    }
+
+    std::size_t layerCount() const
+    {
+        return matchers_.size();
+    }
+
+private:
+    klogg::vector<std::unique_ptr<PatternMatcher>> matchers_;
+};
+
+PartialSearchResults filterLines( const LayeredPatternMatcher& matcher,
+                                  const LogData::RawLines& rawLines, LineNumber chunkStart )
 {
     LOG_DEBUG << "Filter lines at " << chunkStart;
     PartialSearchResults results;
@@ -200,28 +248,28 @@ void LogFilteredDataWorker::connectSignalsAndRun( SearchOperation* operationRequ
     operationRequested->disconnect( this );
 }
 
-void LogFilteredDataWorker::search( const RegularExpressionPattern& regExp, LineNumber startLine,
+void LogFilteredDataWorker::search( const FilterLayers& patterns, LineNumber startLine,
                                     LineNumber endLine )
 {
     ScopedLock locker( operationsMutex_ ); // to protect operationRequested_
     operationsPool_.waitForDone();
     interruptRequested_.clear();
 
-    LOG_INFO << "Search requested";
+    LOG_INFO << "Search requested with " << patterns.size() << " filter layer(s)";
     QSemaphore operationStarted;
-    operationsPool_.start( createRunnable( [ this, &operationStarted, regExp, startLine, endLine ] {
-        operationStarted.release();
-        ScopedLock operationLock( operationsMutex_ );
-        auto operationRequested = std::make_unique<FullSearchOperation>(
-            sourceLogData_, interruptRequested_, regExp, startLine, endLine );
-        connectSignalsAndRun( operationRequested.get() );
-    } ) );
+    operationsPool_.start(
+        createRunnable( [ this, &operationStarted, patterns, startLine, endLine ] {
+            operationStarted.release();
+            ScopedLock operationLock( operationsMutex_ );
+            auto operationRequested = std::make_unique<FullSearchOperation>(
+                sourceLogData_, interruptRequested_, patterns, startLine, endLine );
+            connectSignalsAndRun( operationRequested.get() );
+        } ) );
     operationStarted.acquire();
 }
 
-void LogFilteredDataWorker::updateSearch( const RegularExpressionPattern& regExp,
-                                          LineNumber startLine, LineNumber endLine,
-                                          LineNumber position )
+void LogFilteredDataWorker::updateSearch( const FilterLayers& patterns, LineNumber startLine,
+                                          LineNumber endLine, LineNumber position )
 {
     ScopedLock locker( operationsMutex_ ); // to protect operationRequested_
     operationsPool_.waitForDone();
@@ -231,11 +279,11 @@ void LogFilteredDataWorker::updateSearch( const RegularExpressionPattern& regExp
 
     QSemaphore operationStarted;
     operationsPool_.start(
-        createRunnable( [ this, &operationStarted, regExp, startLine, endLine, position ] {
+        createRunnable( [ this, &operationStarted, patterns, startLine, endLine, position ] {
             operationStarted.release();
             ScopedLock operationLock( operationsMutex_ );
             auto operationRequested = std::make_unique<UpdateSearchOperation>(
-                sourceLogData_, interruptRequested_, regExp, startLine, endLine, position );
+                sourceLogData_, interruptRequested_, patterns, startLine, endLine, position );
             connectSignalsAndRun( operationRequested.get() );
         } ) );
 
@@ -259,11 +307,11 @@ SearchResults LogFilteredDataWorker::getSearchResults() const
 //
 
 SearchOperation::SearchOperation( const LogData& sourceLogData, AtomicFlag& interruptRequested,
-                                  const RegularExpressionPattern& regExp, LineNumber startLine,
+                                  const FilterLayers& patterns, LineNumber startLine,
                                   LineNumber endLine )
 
     : interruptRequested_( interruptRequested )
-    , regexp_( regExp )
+    , patterns_( patterns )
     , sourceLogData_( sourceLogData )
     , startLine_( startLine )
     , endLine_( endLine )
@@ -275,7 +323,8 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
 {
     const auto nbSourceLines = sourceLogData_.getNbLine();
 
-    LOG_INFO << "Searching from line " << initialLine << " to " << nbSourceLines;
+    LOG_INFO << "Searching from line " << initialLine << " to " << nbSourceLines << " with "
+             << patterns_.size() << " filter layer(s)";
 
     using namespace std::chrono;
     high_resolution_clock::time_point t1 = high_resolution_clock::now();
@@ -313,15 +362,13 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
     using RegexMatcherNode
         = tbb::flow::function_node<BlockDataType, BlockDataType, tbb::flow::rejecting>;
 
-    using PatternMatcherPtr = std::unique_ptr<PatternMatcher>;
-    using MatcherContext = std::tuple<PatternMatcherPtr, microseconds, RegexMatcherNode>;
+    using MatcherContext = std::tuple<LayeredPatternMatcher, microseconds, RegexMatcherNode>;
 
     klogg::vector<MatcherContext> regexMatchers;
     regexMatchers.reserve( matchingThreadsCount );
-    RegularExpression regularExpression{ regexp_ };
     for ( auto index = 0u; index < matchingThreadsCount; ++index ) {
         regexMatchers.emplace_back(
-            regularExpression.createMatcher(), microseconds{ 0 },
+            LayeredPatternMatcher{ patterns_ }, microseconds{ 0 },
             RegexMatcherNode(
                 searchGraph, 1, [ &regexMatchers, index, this ]( const BlockDataType& blockData ) {
                     if ( interruptRequested_ ) {
@@ -333,11 +380,12 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
                         return blockData;
                     }
 
-                    const auto& matcher = std::get<PatternMatcherPtr>( regexMatchers.at( index ) );
+                    const auto& matcher
+                        = std::get<LayeredPatternMatcher>( regexMatchers.at( index ) );
                     const auto matchStartTime = high_resolution_clock::now();
 
                     blockData->searchResults
-                        = filterLines( *matcher, blockData->lines, blockData->chunkStart );
+                        = filterLines( matcher, blockData->lines, blockData->chunkStart );
 
                     const auto matchEndTime = high_resolution_clock::now();
 
@@ -346,7 +394,8 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
                     matchDuration += duration_cast<microseconds>( matchEndTime - matchStartTime );
                     LOG_DEBUG << "Searcher " << index << " block " << blockData->chunkStart
                               << " sending matches "
-                              << blockData->searchResults.matchingLines.cardinality();
+                              << blockData->searchResults.matchingLines.cardinality() << " from "
+                              << matcher.layerCount() << " filter layer(s)";
                     return blockData;
                 } ) );
     }
