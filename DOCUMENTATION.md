@@ -86,6 +86,11 @@ its check box, removed with the `x` button, or all layers can be dropped with
 `Clear`. Changing the layer list reruns the search using the current main search
 plus all enabled layers.
 
+The current layer stack can be saved with `Export` and restored with `Import`.
+The collected patterns, their include/exclude type and their enabled state are
+preserved. Importing replaces the current layer stack and is available for
+files in the `.conf` or `.json` format.
+
 As an example, to find all exceptions except null pointer exceptions:
 
 1. enter `Exception` in the search input and press Enter

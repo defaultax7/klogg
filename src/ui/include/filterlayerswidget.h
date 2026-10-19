@@ -50,6 +50,35 @@ public:
         return layers_;
     }
 
+    // Save the current layer stack to a file. Files ending with .json are
+    // written as JSON, everything else uses the application's INI format.
+    bool exportLayersToFile( const QString& fileName, QString* errorString = nullptr ) const;
+    // Replace the layer stack with the contents of a file. The file can be
+    // either in the application's INI format or JSON. Emits layersChanged().
+    bool importLayersFromFile( const QString& fileName, QString* errorString = nullptr );
+
+    // Serialize the current layer stack to JSON and back.
+    QString layersToJson() const;
+    bool importLayersFromJson( const QString& json, QString* errorString = nullptr );
+
+    // Convenience aliases kept for callers that use a shorter name.
+    bool exportToFile( const QString& fileName, QString* errorString = nullptr ) const
+    {
+        return exportLayersToFile( fileName, errorString );
+    }
+    bool importFromFile( const QString& fileName, QString* errorString = nullptr )
+    {
+        return importLayersFromFile( fileName, errorString );
+    }
+    bool saveLayersToFile( const QString& fileName, QString* errorString = nullptr ) const
+    {
+        return exportLayersToFile( fileName, errorString );
+    }
+    bool loadLayersFromFile( const QString& fileName, QString* errorString = nullptr )
+    {
+        return importLayersFromFile( fileName, errorString );
+    }
+
 public Q_SLOTS:
     // Append a layer and notify the owner. Used by the search context menu.
     void addLayer( const QString& pattern, bool isExclude );
@@ -57,6 +86,11 @@ public Q_SLOTS:
     void setLayers( const QList<FilterLayer>& layers );
     // Remove all layers and notify the owner.
     void clearLayers();
+
+    // Ask the user for a file and export the current layer stack.
+    void exportLayers();
+    // Ask the user for a file and replace the current layer stack with it.
+    void importLayers();
 
 Q_SIGNALS:
     void layersChanged();
@@ -78,6 +112,8 @@ private:
     QComboBox* typeCombo_ = nullptr;
     QToolButton* addButton_ = nullptr;
     QToolButton* clearButton_ = nullptr;
+    QToolButton* exportButton_ = nullptr;
+    QToolButton* importButton_ = nullptr;
 };
 
 #endif

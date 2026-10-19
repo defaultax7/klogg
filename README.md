@@ -87,7 +87,7 @@ And on top of that klogg:
 * Supports files with more than 2147483647 lines
 * Includes much faster regular expressions search (2-4 times)
 * Allows combining regular expressions with boolean operators (AND, OR, NOT)
-* Supports multi-layer filtering (include and exclude filters applied in sequence)
+* Supports multi-layer filtering (include and exclude filters applied in sequence) with exportable and importable filter stacks
 * Supports many common text encodings
 * Detects file encoding automatically using [uchardet](https://www.freedesktop.org/wiki/Software/uchardet/) library (supports utf8, utf16, cp1251 and more) 
 * Can limit search operations to some part of huge file
