@@ -19,6 +19,7 @@
 
 #include <QFile>
 #include <QSettings>
+#include <QUrl>
 #include <algorithm>
 
 #include "configuration.h"
@@ -28,11 +29,15 @@
 
 void RecentFiles::removeRecent( const QString& text )
 {
-    // First prune non existent files
+    // First prune non existent files. Keep remote URLs, they are not local files.
     QMutableStringListIterator i( recentFiles_ );
     while ( i.hasNext() ) {
-        if ( !QFile::exists( i.next() ) )
+        const auto entry = i.next();
+        const auto url = QUrl( entry );
+        if ( url.scheme().compare( QStringLiteral( "ssh" ), Qt::CaseInsensitive ) != 0
+             && !QFile::exists( entry ) ) {
             i.remove();
+        }
     }
 
     recentFiles_.removeAll( text );

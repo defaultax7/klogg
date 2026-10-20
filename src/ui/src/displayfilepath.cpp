@@ -20,6 +20,7 @@
 #include "displayfilepath.h"
 
 #include <QDir>
+#include <QUrl>
 
 constexpr const int MaxPathLength = 128;
 namespace {
@@ -64,9 +65,19 @@ QString shrinkPath( QString fullPath, int limit, QString delimiter = "…" )
 
 DisplayFilePath::DisplayFilePath( const QString& fullPath )
     : fullPath_( fullPath )
-    , nativeFullPath_( QDir::toNativeSeparators( fullPath ) )
-    , displayName_( shrinkPath( fullPath, MaxPathLength ) )
 {
+    const auto url = QUrl( fullPath );
+    if ( url.scheme().compare( QStringLiteral( "ssh" ), Qt::CaseInsensitive ) == 0 ) {
+        nativeFullPath_ = fullPath;
+        displayName_ = url.fileName();
+        if ( displayName_.isEmpty() ) {
+            displayName_ = fullPath;
+        }
+    }
+    else {
+        nativeFullPath_ = QDir::toNativeSeparators( fullPath );
+        displayName_ = shrinkPath( fullPath, MaxPathLength );
+    }
 }
 
 QString DisplayFilePath::fullPath() const

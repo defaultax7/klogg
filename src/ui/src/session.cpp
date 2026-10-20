@@ -26,6 +26,7 @@
 
 #include "logdata.h"
 #include "logfiltereddata.h"
+#include "remotetail.h"
 #include "savedsearches.h"
 #include "sessioninfo.h"
 #include "viewinterface.h"
@@ -94,6 +95,16 @@ ViewInterface* Session::openAlways( const QString& file_name,
                                     const std::function<ViewInterface*()>& view_factory,
                                     const QString& view_context )
 {
+    auto dataFileName = file_name;
+    if ( isSshUrl( file_name ) ) {
+        QString errorString;
+        dataFileName = RemoteTailManager::instance().ensureTail( file_name, &errorString );
+        if ( dataFileName.isEmpty() ) {
+            LOG_ERROR << "Can't start SSH tail for " << file_name << ": " << errorString;
+            throw FileUnreadableErr{};
+        }
+    }
+
     // Create the data objects
     auto log_data = std::make_shared<LogData>();
     auto log_filtered_data = std::shared_ptr<LogFilteredData>( log_data->getNewFilteredData() );
@@ -110,7 +121,7 @@ ViewInterface* Session::openAlways( const QString& file_name,
     openFiles_.insert( { view, { file_name, log_data, log_filtered_data, view } } );
 
     // Start loading the file
-    log_data->attachFile( file_name );
+    log_data->attachFile( dataFileName );
 
     return view;
 }
@@ -192,10 +203,14 @@ WindowSession::restore( const std::function<ViewInterface*()>& view_factory,
 
     for ( const auto& file : session_files ) {
         LOG_DEBUG << "Create view for " << file.fileName;
-        ViewInterface* view
-            = appSession_->openAlways( file.fileName, view_factory, file.viewContext );
-        result.emplace_back( file.fileName, view );
-        openedFiles_.emplace_back( file.fileName );
+        try {
+            ViewInterface* view
+                = appSession_->openAlways( file.fileName, view_factory, file.viewContext );
+            result.emplace_back( file.fileName, view );
+            openedFiles_.emplace_back( file.fileName );
+        } catch ( const FileUnreadableErr& ) {
+            LOG_ERROR << "Skipping unreadable file from session: " << file.fileName;
+        }
     }
 
     *current_file_index = klogg::isize( result ) - 1;

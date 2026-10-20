@@ -153,8 +153,13 @@ struct CliParameters {
         }
 
         for ( const auto& file : parser.positionalArguments() ) {
-            const auto fileInfo = QFileInfo( file );
-            filenames.emplace_back( fileInfo.absoluteFilePath() );
+            if ( file.startsWith( QStringLiteral( "ssh://" ), Qt::CaseInsensitive ) ) {
+                filenames.emplace_back( file );
+            }
+            else {
+                const auto fileInfo = QFileInfo( file );
+                filenames.emplace_back( fileInfo.absoluteFilePath() );
+            }
         }
     }
 

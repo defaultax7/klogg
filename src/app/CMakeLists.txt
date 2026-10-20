@@ -48,6 +48,8 @@ set(KLOGG_UI_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/messagereceiver.h
     ${CMAKE_CURRENT_SOURCE_DIR}/kloggapp.h
     ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sshaskpass.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/sshaskpass.cpp
     ${DOCUMENTATION_RESOURCE}
     ${ICON_FILE}
 )

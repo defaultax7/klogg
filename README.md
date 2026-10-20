@@ -79,6 +79,7 @@ Klogg has all best features of glogg:
 * Colorizes the log and search results
 * Displays a context view of where in the log the lines of interest are
 * Watches for file changes on disk and reloads it (kind of like tail)
+* Follows remote log files over SSH (`tail -F`) with passwords from Windows Credential Manager
 * Is open source, released under the GPL
 
 And on top of that klogg:

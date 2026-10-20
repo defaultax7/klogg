@@ -148,6 +148,7 @@ if Hyperscan can't handle the search pattern. However, in this case search will 
 * using dedicated open file item in `File` menu or toolbar
 * dragging files from the file manager
 * downloading files from a provided url
+* following remote files over SSH
 * providing one or many files via the command line
 * using recent files or favorite menu items.
 
@@ -169,6 +170,54 @@ determined automatically by file content or extension.
 
 *klogg* can open files from remote URLs. In that case, *klogg* will
 download the file to a temporary directory and open it from there.
+
+#### Remote files over SSH
+
+*klogg* can follow a remote log file with `tail -F` over SSH. Use
+`File -> Open URL` and enter an URL in this form:
+
+```
+ssh://user@host/absolute/path/to/file.log
+```
+
+The remote file is read with `tail -F` and streamed to a local temporary file,
+so the normal *klogg* follow mode keeps showing new lines as they are appended
+remotely. New SSH host keys are accepted automatically, while changed host keys
+are rejected. The same URL can be passed on the command line:
+
+```
+klogg ssh://user@host/var/log/application.log
+```
+
+On Windows the password can be read from Windows Credential Manager. The
+default target name is:
+
+```
+klogg-ssh:user@host
+```
+
+For non-default ports the port is appended, for example
+`klogg-ssh:user@host:2222`. Create a generic credential with `cmdkey`:
+
+```
+cmdkey /generic:"klogg-ssh:user@host" /user:user /pass:<password>
+```
+
+Alternatively use the Windows Credential Manager control panel and add a
+*Generic Credential* with that target. The credential target can be overridden
+with the `?credential=<target>` URL query parameter:
+
+```
+ssh://user@host/var/log/application.log?credential=my-ssh-credential
+```
+
+On Linux and macOS, SSH keys or ssh-agent are used instead of Windows
+Credential Manager.
+
+Leave the credential target empty in the Open URL dialog (or use
+`?credential=none`) to use SSH keys or ssh-agent instead. The credential
+password is only passed to the `ssh` process through an SSH askpass helper;
+it is never written to disk.
 
 #### Recent files
 

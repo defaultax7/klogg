@@ -62,6 +62,7 @@
 
 #include "cli.h"
 #include "kloggapp.h"
+#include "sshaskpass.h"
 
 #ifdef KLOGG_PORTABLE
 const bool PersistentInfo::ForcePortable = true;
@@ -115,6 +116,11 @@ void setApplicationAttributes( bool enableQtHdpi, int scaleFactorRounding )
 
 int main( int argc, char* argv[] )
 {
+    const auto askPassExitCode = runSshAskPassIfRequested();
+    if ( askPassExitCode >= 0 ) {
+        return askPassExitCode;
+    }
+
 #ifdef KLOGG_USE_MIMALLOC
     mi_process_init();
 #endif

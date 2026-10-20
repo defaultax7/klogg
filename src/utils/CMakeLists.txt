@@ -11,8 +11,10 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/resourcewrapper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/crc32.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/cpu_info.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/windowscredentials.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/runnable_lambda.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu_info.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/windowscredentials.cpp
 )
 
 set_target_properties(klogg_utils PROPERTIES AUTOMOC ON)
@@ -32,3 +34,7 @@ target_link_libraries(
          type_safe
          klogg_mimalloc_wrapper
 )
+
+if(WIN32)
+  target_link_libraries(klogg_utils PUBLIC advapi32)
+endif()

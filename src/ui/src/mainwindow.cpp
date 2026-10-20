@@ -101,10 +101,12 @@
 #include "progress.h"
 #include "readablesize.h"
 #include "recentfiles.h"
+#include "remotetail.h"
 #include "sessioninfo.h"
 #include "shortcuts.h"
 #include "styles.h"
 #include "tabbedcrawlerwidget.h"
+#include "windowscredentials.h"
 
 namespace {
 
@@ -234,6 +236,13 @@ MainWindow::MainWindow( WindowSession session )
     updateTitleBar( "" );
     loadIcons();
     reTranslateUI();
+
+    connect( &RemoteTailManager::instance(), &RemoteTailManager::remoteTailFailed, this,
+             [ this ]( const QString& sshUrl, const QString& message ) {
+                 QMessageBox::warning(
+                     this, tr( "SSH tail failed" ),
+                     tr( "Failed to follow %1:\n\n%2" ).arg( sshUrl, message ) );
+             } );
 }
 
 void MainWindow::reloadGeometry()
@@ -250,17 +259,20 @@ void MainWindow::reloadSession()
     const auto followFileOnLoad = config.followFileOnLoad() && config.anyFileWatchEnabled();
 
     int current_file_index = -1;
+    auto hasRemoteFiles = false;
     const auto openedFiles
         = session_.restore( [] { return new CrawlerWidget(); }, &current_file_index );
 
     for ( const auto& open_file : openedFiles ) {
         QString file_name = { open_file.first };
         auto* crawler_widget = static_cast<CrawlerWidget*>( open_file.second );
+        const auto isRemoteSsh = isSshUrl( file_name );
+        hasRemoteFiles = hasRemoteFiles || isRemoteSsh;
 
         if ( crawler_widget ) {
             mainTabWidget_.addCrawler( crawler_widget, file_name );
 
-            if ( followFileOnLoad ) {
+            if ( followFileOnLoad || isRemoteSsh ) {
                 signalCrawlerToFollowFile( crawler_widget );
             }
         }
@@ -269,7 +281,7 @@ void MainWindow::reloadSession()
     if ( current_file_index >= 0 ) {
         mainTabWidget_.setCurrentIndex( current_file_index );
 
-        if ( followFileOnLoad ) {
+        if ( followFileOnLoad || hasRemoteFiles ) {
             followAction->setChecked( true );
         }
     }
@@ -1004,7 +1016,7 @@ void MainWindow::openFileFromRecent( QAction* action )
     }
 
     const auto filename = action->data().toString();
-    if ( QFileInfo{ filename }.isReadable() ) {
+    if ( isSshUrl( filename ) || QFileInfo{ filename }.isReadable() ) {
         loadFile( filename );
     }
     else {
@@ -1026,7 +1038,7 @@ void MainWindow::openFileFromFavorites( QAction* action )
     }
 
     const auto filename = action->data().toString();
-    if ( QFileInfo{ filename }.isReadable() ) {
+    if ( isSshUrl( filename ) || QFileInfo{ filename }.isReadable() ) {
         loadFile( filename );
     }
     else {
@@ -1102,6 +1114,12 @@ void MainWindow::find()
 void MainWindow::clearLog()
 {
     const auto current_file = session_.getFilename( currentCrawlerWidget() );
+    if ( isSshUrl( current_file ) ) {
+        QMessageBox::information( this, tr( "klogg - clear file" ),
+                                  tr( "Remote SSH files cannot be cleared from klogg" ) );
+        return;
+    }
+
     if ( QMessageBox::warning(
              this, tr( "klogg - clear file" ),
              tr( "Clear file %1? File content will be removed from disk, this is irreversible" )
@@ -1114,17 +1132,32 @@ void MainWindow::clearLog()
 void MainWindow::copyFullPath()
 {
     const auto current_file = session_.getFilename( currentCrawlerWidget() );
-    sendTextToClipboard( QDir::toNativeSeparators( current_file ) );
+    sendTextToClipboard( isSshUrl( current_file ) ? current_file
+                                                   : QDir::toNativeSeparators( current_file ) );
 }
 
 void MainWindow::openContainingFolder()
 {
-    showPathInFileExplorer( session_.getFilename( currentCrawlerWidget() ) );
+    const auto current_file = session_.getFilename( currentCrawlerWidget() );
+    if ( isSshUrl( current_file ) ) {
+        QMessageBox::information( this, tr( "klogg - open containing folder" ),
+                                  tr( "Remote SSH files are not available locally" ) );
+        return;
+    }
+
+    showPathInFileExplorer( current_file );
 }
 
 void MainWindow::openInEditor()
 {
-    openFileInDefaultApplication( session_.getFilename( currentCrawlerWidget() ) );
+    const auto current_file = session_.getFilename( currentCrawlerWidget() );
+    if ( isSshUrl( current_file ) ) {
+        QMessageBox::information( this, tr( "klogg - open in editor" ),
+                                  tr( "Remote SSH files are not available locally" ) );
+        return;
+    }
+
+    openFileInDefaultApplication( current_file );
 }
 
 void MainWindow::tryOpenClipboard( int tryTimes )
@@ -1158,11 +1191,67 @@ void MainWindow::openUrl()
     const auto selectedUrl = urlInClipboard.isValid() ? urlInClipboard.toString() : QString{};
 
     QString url
-        = QInputDialog::getText( this, tr( "Open URL as log file" ), tr( "URL to download:" ),
+        = QInputDialog::getText( this, tr( "Open URL as log file" ),
+                                 tr( "URL to download or ssh://user@host/path:" ),
                                  QLineEdit::Normal, selectedUrl, &ok );
-    if ( ok && !url.isEmpty() ) {
-        openRemoteFile( url );
+    if ( !ok || url.isEmpty() ) {
+        return;
     }
+
+    if ( !isSshUrl( url ) ) {
+        openRemoteFile( url );
+        return;
+    }
+
+    const QUrl sshUrl{ url };
+    if ( sshUrl.host().isEmpty() || sshUrl.path().isEmpty() ) {
+        QMessageBox::warning( this, tr( "Open SSH log" ),
+                              tr( "SSH URL must have the form ssh://user@host/path" ) );
+        return;
+    }
+
+    QUrl remoteUrl = sshUrl;
+#ifdef Q_OS_WIN
+    QUrlQuery urlQuery{ sshUrl };
+    const auto defaultTarget
+        = urlQuery.hasQueryItem( QStringLiteral( "credential" ) )
+              ? urlQuery.queryItemValue( QStringLiteral( "credential" ), QUrl::FullyDecoded )
+              : defaultSshCredentialTarget( sshUrl );
+
+    bool credentialOk = false;
+    const auto credentialTarget = QInputDialog::getText(
+        this, tr( "Windows Credential Manager" ),
+        tr( "Credential target (leave empty to use SSH keys or ssh-agent):" ),
+        QLineEdit::Normal, defaultTarget, &credentialOk );
+    if ( !credentialOk ) {
+        return;
+    }
+
+    urlQuery.removeAllQueryItems( QStringLiteral( "credential" ) );
+    const auto trimmedTarget = credentialTarget.trimmed();
+    const auto useCredential
+        = !trimmedTarget.isEmpty()
+          && trimmedTarget.compare( QStringLiteral( "none" ), Qt::CaseInsensitive ) != 0;
+    if ( useCredential ) {
+        if ( !windowsCredentialExists( trimmedTarget ) ) {
+            QMessageBox::warning(
+                this, tr( "Windows Credential Manager" ),
+                tr( "No credential found for target \"%1\".\n\n"
+                    "Create one with:\n"
+                    "cmdkey /generic:\"%1\" /user:<user> /pass:<password>" )
+                    .arg( trimmedTarget ) );
+            return;
+        }
+        urlQuery.addQueryItem( QStringLiteral( "credential" ), trimmedTarget );
+    }
+    else {
+        urlQuery.addQueryItem( QStringLiteral( "credential" ), QStringLiteral( "none" ) );
+    }
+
+    remoteUrl.setQuery( urlQuery );
+#endif
+
+    loadFile( remoteUrl.toString( QUrl::FullyEncoded ) );
 }
 
 // Opens the 'Highlighters' dialog box
@@ -1605,6 +1694,11 @@ void MainWindow::dropEvent( QDropEvent* event )
     const QList<QUrl> urls = event->mimeData()->urls();
 
     for ( const auto& url : urls ) {
+        if ( isSshUrl( url.toString() ) ) {
+            loadFile( url.toString( QUrl::FullyEncoded ) );
+            continue;
+        }
+
         auto fileName = url.toLocalFile();
         if ( fileName.isEmpty() )
             continue;
@@ -1734,7 +1828,9 @@ bool MainWindow::loadFile( const QString& fileName, bool followFile )
         return true;
     }
 
-    const auto decompressAction = Decompressor::action( fileName );
+    const auto isRemoteSsh = isSshUrl( fileName );
+    const auto decompressAction
+        = isRemoteSsh ? DecompressAction::None : Decompressor::action( fileName );
 
     if ( decompressAction == DecompressAction::None || !Configuration::get().extractArchives() ) {
         // Load the file
@@ -1788,7 +1884,9 @@ bool MainWindow::loadFile( const QString& fileName, bool followFile )
             updateOpenedFilesMenu();
 
             const auto& config = Configuration::get();
-            if ( config.anyFileWatchEnabled() && ( followFile || config.followFileOnLoad() ) ) {
+            if ( isRemoteSsh
+                 || ( config.anyFileWatchEnabled()
+                      && ( followFile || config.followFileOnLoad() ) ) ) {
                 signalCrawlerToFollowFile( crawler_widget );
                 followAction->setChecked( true );
             }
@@ -1808,6 +1906,13 @@ bool MainWindow::loadFile( const QString& fileName, bool followFile )
 // Strips the passed filename from its directory part.
 QString MainWindow::strippedName( const QString& fullFileName ) const
 {
+    if ( isSshUrl( fullFileName ) ) {
+        const auto remoteName = QUrl( fullFileName ).fileName();
+        if ( !remoteName.isEmpty() ) {
+            return remoteName;
+        }
+    }
+
     return QFileInfo( fullFileName ).fileName();
 }
 

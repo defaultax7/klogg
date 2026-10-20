@@ -26,6 +26,7 @@
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QUrl>
 #include <qobjectdefs.h>
 #include <qpoint.h>
 
@@ -37,13 +38,31 @@
 #include "iconloader.h"
 #include "log.h"
 #include "openfilehelper.h"
+#include "remotetail.h"
 #include "styles.h"
 #include "tabnamemapping.h"
 
 namespace {
 constexpr QLatin1String PathKey = QLatin1String( "path", 4 );
 constexpr QLatin1String StatusKey = QLatin1String( "status", 6 );
-} // namespace
+
+QString tabLabelForPath( const QString& path )
+{
+    if ( isSshUrl( path ) ) {
+        const auto remoteName = QUrl( path ).fileName();
+        if ( !remoteName.isEmpty() ) {
+            return remoteName;
+        }
+    }
+
+    return QFileInfo( path ).fileName();
+}
+
+QString tabToolTipForPath( const QString& path )
+{
+    return isSshUrl( path ) ? path : QDir::toNativeSeparators( path );
+}
+} // namespace // namespace
 
 TabbedCrawlerWidget::TabbedCrawlerWidget()
     : QTabWidget()
@@ -129,12 +148,12 @@ void TabbedCrawlerWidget::changeEvent( QEvent* event )
 
 void TabbedCrawlerWidget::addTabBarItem( int index, const QString& fileName )
 {
-    const auto tabLabel = QFileInfo( fileName ).fileName();
+    const auto tabLabel = tabLabelForPath( fileName );
     const auto tabName = TabNameMapping::getSynced().tabName( fileName );
 
     myTabBar_.setTabIcon( index, olddata_icon_ );
     myTabBar_.setTabText( index, tabName.isEmpty() ? tabLabel : tabName );
-    myTabBar_.setTabToolTip( index, QDir::toNativeSeparators( fileName ) );
+    myTabBar_.setTabToolTip( index, tabToolTipForPath( fileName ) );
 
     QVariantMap tabData;
     tabData[ PathKey ] = fileName;
@@ -257,7 +276,7 @@ void TabbedCrawlerWidget::showContextMenu( int tab, QPoint globalPoint )
             TabNameMapping::getSynced().setTabName( tabPath, newName ).save();
 
             if ( newName.isEmpty() ) {
-                myTabBar_.setTabText( tab, QFileInfo( tabPath ).fileName() );
+                myTabBar_.setTabText( tab, tabLabelForPath( tabPath ) );
             }
             else {
                 myTabBar_.setTabText( tab, std::move( newName ) );
@@ -268,7 +287,7 @@ void TabbedCrawlerWidget::showContextMenu( int tab, QPoint globalPoint )
     connect( resetTabName, &QAction::triggered, this, [ this, tab ] {
         const auto tabPath = tabPathAt( tab );
         TabNameMapping::getSynced().setTabName( tabPath, "" ).save();
-        myTabBar_.setTabText( tab, QFileInfo( tabPath ).fileName() );
+        myTabBar_.setTabText( tab, tabLabelForPath( tabPath ) );
     } );
 
     menu.exec( globalPoint );
