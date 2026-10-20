@@ -80,8 +80,11 @@ struct PartialSearchResults {
 
 struct SearchBlockData {
     SearchBlockData() = default;
-    SearchBlockData( LineNumber start, LogData::RawLines blockLines )
-        : chunkStart( start )
+    SearchBlockData( LineNumber rawStart, LineNumber chunkStart, LinesCount chunkLines,
+                     LogData::RawLines blockLines )
+        : rawStart( rawStart )
+        , chunkStart( chunkStart )
+        , chunkLines( chunkLines )
         , lines( std::move( blockLines ) )
     {
     }
@@ -92,15 +95,18 @@ struct SearchBlockData {
     SearchBlockData& operator=( const SearchBlockData& ) = delete;
     SearchBlockData& operator=( SearchBlockData&& ) = default;
 
+    LineNumber rawStart;
     LineNumber chunkStart;
+    LinesCount chunkLines;
     LogData::RawLines lines;
 
     PartialSearchResults searchResults;
 };
 
 // Matches a line against a stack of filters. Every layer must accept the line:
-// include layers must match, exclude layers must not match. Filter layers are
-// evaluated in the order they were added and stop at the first rejection.
+// include layers must match, exclude layers must not match. A layer can also
+// mark a number of lines following a match as matched, which makes it possible
+// to include or exclude a whole stack trace after its first line.
 class LayeredPatternMatcher {
 public:
     explicit LayeredPatternMatcher( const FilterLayers& layers )
@@ -112,8 +118,17 @@ public:
                 continue;
             }
 
-            RegularExpression expression{ layer };
-            matchers_.push_back( expression.createMatcher() );
+            // Build a matcher for the raw pattern and apply include/exclude
+            // semantics ourselves, so that following lines can be handled for
+            // exclude layers as well.
+            auto matchPattern = layer;
+            matchPattern.isExclude = false;
+
+            RegularExpression expression{ matchPattern };
+            const auto followingLines = std::max( 0, layer.followingLines );
+            matchers_.push_back( LayerMatcher{ expression.createMatcher(), layer.isExclude,
+                                               followingLines } );
+            maxFollowingLines_ = std::max( maxFollowingLines_, followingLines );
         }
     }
 
@@ -123,50 +138,104 @@ public:
     LayeredPatternMatcher( LayeredPatternMatcher&& ) = default;
     LayeredPatternMatcher& operator=( LayeredPatternMatcher&& ) = default;
 
-    bool hasMatch( std::string_view line ) const
-    {
-        if ( matchers_.empty() ) {
-            return false;
-        }
-
-        // PatternMatcher already inverts excluded layers, so every layer can
-        // be checked uniformly as an AND condition.
-        return std::all_of( matchers_.cbegin(), matchers_.cend(),
-                            [ line ]( const auto& matcher ) { return matcher->hasMatch( line ); } );
-    }
-
     std::size_t layerCount() const
     {
         return matchers_.size();
     }
 
+    int maxFollowingLines() const
+    {
+        return maxFollowingLines_;
+    }
+
+    bool rawMatch( std::size_t layer, std::string_view line ) const
+    {
+        return matchers_[ layer ].matcher->hasMatch( line );
+    }
+
+    bool isExclude( std::size_t layer ) const
+    {
+        return matchers_[ layer ].isExclude;
+    }
+
+    int followingLines( std::size_t layer ) const
+    {
+        return matchers_[ layer ].followingLines;
+    }
+
 private:
-    klogg::vector<std::unique_ptr<PatternMatcher>> matchers_;
+    struct LayerMatcher {
+        std::unique_ptr<PatternMatcher> matcher;
+        bool isExclude = false;
+        int followingLines = 0;
+    };
+
+    klogg::vector<LayerMatcher> matchers_;
+    int maxFollowingLines_ = 0;
 };
 
-PartialSearchResults filterLines( const LayeredPatternMatcher& matcher,
-                                  const LogData::RawLines& rawLines, LineNumber chunkStart )
+LinesCount maxFollowingLines( const FilterLayers& layers )
 {
-    LOG_DEBUG << "Filter lines at " << chunkStart;
+    auto maxLines = 0;
+
+    for ( const auto& layer : layers ) {
+        if ( !layer.pattern.isEmpty() ) {
+            maxLines = std::max( maxLines, std::max( 0, layer.followingLines ) );
+        }
+    }
+
+    return LinesCount{ static_cast<LinesCount::UnderlyingType>( maxLines ) };
+}
+
+PartialSearchResults filterLines( const LayeredPatternMatcher& matcher,
+                                  const LogData::RawLines& rawLines, LineNumber rawStart,
+                                  LineNumber reportStart, LinesCount reportLines )
+{
+    LOG_DEBUG << "Filter lines at " << reportStart;
     PartialSearchResults results;
-    results.chunkStart = chunkStart;
-    results.processedLines = LinesCount{ rawLines.endOfLines.size() };
+    results.chunkStart = reportStart;
+    results.processedLines = reportLines;
 
     const auto& lines = rawLines.buildUtf8View();
+    const auto layerCount = matcher.layerCount();
+    if ( layerCount == 0 ) {
+        return results;
+    }
+
+    const auto reportEnd = reportStart + reportLines;
+
+    // Number of following lines still matched by each layer. The raw region
+    // starts a few lines before the reported chunk so context state carries
+    // correctly across chunk boundaries.
+    klogg::vector<int> remainingFollowingLines( layerCount, 0 );
 
     for ( auto offset = 0u; offset < lines.size(); ++offset ) {
         const auto& line = lines[ offset ];
+        const auto lineNumber = rawStart + LinesCount{ offset };
+        auto lineAccepted = true;
 
-        const auto hasMatch = matcher.hasMatch( line );
+        for ( auto layer = 0u; layer < layerCount; ++layer ) {
+            const auto hasRawMatch = matcher.rawMatch( layer, line );
+            const auto hasFollowingContext = remainingFollowingLines[ layer ] > 0;
+            const auto layerMatched = hasRawMatch || hasFollowingContext;
+            const auto layerAccepted = matcher.isExclude( layer ) ? !layerMatched : layerMatched;
 
-        if ( hasMatch ) {
+            if ( hasRawMatch ) {
+                remainingFollowingLines[ layer ] = matcher.followingLines( layer );
+            }
+            else if ( hasFollowingContext ) {
+                --remainingFollowingLines[ layer ];
+            }
+
+            lineAccepted = lineAccepted && layerAccepted;
+        }
+
+        if ( lineAccepted && lineNumber >= reportStart && lineNumber < reportEnd ) {
             results.maxLength = qMax( results.maxLength, getUntabifiedLength( line ) );
-            const auto lineNumber = chunkStart + LinesCount{ offset };
             results.matchingLines.add( lineNumber.get() );
-
-            // LOG_INFO << "Match at " << lineNumber << ": " << line;
         }
     }
+
     return results;
 }
 
@@ -350,6 +419,7 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
     const auto endLine = qMin( LineNumber( nbSourceLines.get() ), endLine_ );
     const auto nbLinesInChunk = LinesCount(
         static_cast<LinesCount::UnderlyingType>( config.searchReadBufferSizeLines() ) );
+    const auto maxContextLines = maxFollowingLines( patterns_ );
 
     std::chrono::microseconds fileReadingDuration{ 0 };
 
@@ -375,8 +445,7 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
                         LOG_INFO << "Matcher " << index << " interrupted";
                         auto results = std::make_shared<PartialSearchResults>();
                         blockData->searchResults.chunkStart = blockData->chunkStart;
-                        blockData->searchResults.processedLines
-                            = LinesCount{ blockData->lines.endOfLines.size() };
+                        blockData->searchResults.processedLines = blockData->chunkLines;
                         return blockData;
                     }
 
@@ -385,7 +454,8 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
                     const auto matchStartTime = high_resolution_clock::now();
 
                     blockData->searchResults
-                        = filterLines( matcher, blockData->lines, blockData->chunkStart );
+                        = filterLines( matcher, blockData->lines, blockData->rawStart,
+                                       blockData->chunkStart, blockData->chunkLines );
 
                     const auto matchEndTime = high_resolution_clock::now();
 
@@ -480,12 +550,18 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
 
         const auto linesInChunk
             = LinesCount( qMin( nbLinesInChunk.get(), ( endLine - chunkStart ).get() ) );
-        auto lines = sourceLogData_.getLinesRaw( chunkStart, linesInChunk );
+
+        // Read a bit before the reported chunk so a match just before the
+        // chunk boundary can still include or exclude lines in this chunk.
+        const auto rawStart = chunkStart - maxContextLines;
+        const auto rawLinesCount = ( chunkStart + linesInChunk ) - rawStart;
+        auto lines = sourceLogData_.getLinesRaw( rawStart, rawLinesCount );
 
         /*LOG_DEBUG << "Sending chunk starting at " << chunkStart << ", " <<
             lines.second.size()
                 << " lines read.";*/
-        BlockDataType blockData = new SearchBlockData{ chunkStart, std::move( lines ) };
+        BlockDataType blockData
+            = new SearchBlockData{ rawStart, chunkStart, linesInChunk, std::move( lines ) };
 
         const auto lineSourceEndTime = high_resolution_clock::now();
         const auto chunkReadTime

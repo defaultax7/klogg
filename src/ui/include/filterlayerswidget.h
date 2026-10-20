@@ -26,6 +26,7 @@
 
 class QComboBox;
 class QLineEdit;
+class QSpinBox;
 class QToolButton;
 class QVBoxLayout;
 
@@ -34,6 +35,7 @@ struct FilterLayer {
     QString pattern;
     bool isExclude = false;
     bool isEnabled = true;
+    int followingLines = 0;
 };
 
 // Small editor listing the additional filter layers applied to the current
@@ -81,7 +83,7 @@ public:
 
 public Q_SLOTS:
     // Append a layer and notify the owner. Used by the search context menu.
-    void addLayer( const QString& pattern, bool isExclude );
+    void addLayer( const QString& pattern, bool isExclude, int followingLines = 0 );
     // Replace the whole stack without emitting layersChanged().
     void setLayers( const QList<FilterLayer>& layers );
     // Remove all layers and notify the owner.
@@ -110,6 +112,7 @@ private:
     QVBoxLayout* rowsLayout_ = nullptr;
     QLineEdit* patternEdit_ = nullptr;
     QComboBox* typeCombo_ = nullptr;
+    QSpinBox* followingLinesSpinBox_ = nullptr;
     QToolButton* addButton_ = nullptr;
     QToolButton* clearButton_ = nullptr;
     QToolButton* exportButton_ = nullptr;

@@ -36,6 +36,7 @@
 #include <QSaveFile>
 #include <QSettings>
 #include <QSizePolicy>
+#include <QSpinBox>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -66,6 +67,9 @@ QList<FilterLayer> readLayersFromSettings( QSettings& settings, const QString& a
             = settings.value( "exclude", settings.value( "isExclude", false ) ).toBool();
         layer.isEnabled
             = settings.value( "enabled", settings.value( "isEnabled", true ) ).toBool();
+        layer.followingLines
+            = qMax( 0, settings.value( "followingLines", settings.value( "following", 0 ) )
+                           .toInt() );
 
         if ( !layer.pattern.isEmpty() ) {
             layers.push_back( layer );
@@ -113,6 +117,9 @@ QList<FilterLayer> readLayersFromJsonArray( const QJsonArray& layersArray )
                                   toBool( layerObject.value( "isExclude" ), false ) );
         layer.isEnabled = toBool( layerObject.value( "enabled" ),
                                   toBool( layerObject.value( "isEnabled" ), true ) );
+        layer.followingLines = qMax(
+            0, layerObject.value( "followingLines" )
+                   .toInt( layerObject.value( "following" ).toInt( 0 ) ) );
 
         if ( !layer.pattern.isEmpty() ) {
             layers.push_back( layer );
@@ -149,6 +156,16 @@ FilterLayersWidget::FilterLayersWidget( QWidget* parent )
     typeCombo_->addItem( tr( "Exclude" ), true );
     typeCombo_->setToolTip( tr( "Include narrows the results, exclude removes matching lines" ) );
 
+    followingLinesSpinBox_ = new QSpinBox( this );
+    followingLinesSpinBox_->setObjectName( "followingLinesSpinBox" );
+    followingLinesSpinBox_->setRange( 0, 1000 );
+    followingLinesSpinBox_->setValue( 0 );
+    followingLinesSpinBox_->setPrefix( "+" );
+    followingLinesSpinBox_->setSuffix( tr( " lines" ) );
+    followingLinesSpinBox_->setToolTip(
+        tr( "Also include or exclude this many lines following each matching line" ) );
+    followingLinesSpinBox_->setKeyboardTracking( false );
+
     addButton_ = new QToolButton( this );
     addButton_->setText( tr( "Add" ) );
     addButton_->setAutoRaise( true );
@@ -174,6 +191,7 @@ FilterLayersWidget::FilterLayersWidget( QWidget* parent )
     inputLayout->addWidget( titleLabel );
     inputLayout->addWidget( patternEdit_, 1 );
     inputLayout->addWidget( typeCombo_ );
+    inputLayout->addWidget( followingLinesSpinBox_ );
     inputLayout->addWidget( addButton_ );
     inputLayout->addWidget( clearButton_ );
     inputLayout->addWidget( exportButton_ );
@@ -197,13 +215,13 @@ FilterLayersWidget::FilterLayersWidget( QWidget* parent )
     rebuildRows();
 }
 
-void FilterLayersWidget::addLayer( const QString& pattern, bool isExclude )
+void FilterLayersWidget::addLayer( const QString& pattern, bool isExclude, int followingLines )
 {
     if ( pattern.trimmed().isEmpty() ) {
         return;
     }
 
-    layers_.append( FilterLayer{ pattern, isExclude, true } );
+    layers_.append( FilterLayer{ pattern, isExclude, true, qMax( 0, followingLines ) } );
     rebuildRows();
     notifyChanged();
 }
@@ -234,6 +252,7 @@ QString FilterLayersWidget::layersToJson() const
         layerObject.insert( "pattern", layer.pattern );
         layerObject.insert( "exclude", layer.isExclude );
         layerObject.insert( "enabled", layer.isEnabled );
+        layerObject.insert( "followingLines", layer.followingLines );
         layersArray.append( layerObject );
     }
 
@@ -283,6 +302,8 @@ bool FilterLayersWidget::exportLayersToFile( const QString& fileName, QString* e
         settings.setValue( "isExclude", layer.isExclude );
         settings.setValue( "enabled", layer.isEnabled );
         settings.setValue( "isEnabled", layer.isEnabled );
+        settings.setValue( "followingLines", layer.followingLines );
+        settings.setValue( "following", layer.followingLines );
     }
 
     settings.endArray();
@@ -492,7 +513,7 @@ void FilterLayersWidget::addLayerFromInput()
     }
 
     const auto isExclude = typeCombo_->currentData().toBool();
-    addLayer( pattern, isExclude );
+    addLayer( pattern, isExclude, followingLinesSpinBox_->value() );
     patternEdit_->clear();
     patternEdit_->setFocus();
 }
@@ -545,6 +566,14 @@ void FilterLayersWidget::rebuildRows()
         enabledCheckBox->setToolTip( tr( "Enable or disable this filter layer" ) );
 
         auto* typeLabel = new QLabel( layer.isExclude ? tr( "Exclude" ) : tr( "Include" ), row );
+        if ( layer.followingLines > 0 ) {
+            typeLabel->setText( typeLabel->text()
+                                + tr( " +%1" ).arg( layer.followingLines ) );
+            typeLabel->setToolTip( tr( "The following %1 line(s) are also %2" )
+                                      .arg( layer.followingLines )
+                                      .arg( layer.isExclude ? tr( "excluded" )
+                                                            : tr( "included" ) ) );
+        }
         auto typeFont = typeLabel->font();
         typeFont.setBold( true );
         typeLabel->setFont( typeFont );

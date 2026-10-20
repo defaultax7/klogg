@@ -79,6 +79,8 @@ search input:
 * enter a pattern in the text field
 * choose `Include` to keep only lines matching the pattern or `Exclude` to
   remove lines matching the pattern
+* optionally set `+ N lines` to apply the same include/exclude decision to the
+  N lines following each match
 * click `Add` (or press Enter)
 
 Each added layer is displayed in the list. It can be temporarily disabled with
@@ -86,20 +88,30 @@ its check box, removed with the `x` button, or all layers can be dropped with
 `Clear`. Changing the layer list reruns the search using the current main search
 plus all enabled layers.
 
+The following-lines option is useful for stack traces: excluding
+`NullPointerException` with `+ 3 lines` removes the exception line together
+with the three stack-trace lines after it. Likewise, including a pattern with
+following lines keeps the matching line and its surrounding context.
+
 The current layer stack can be saved with `Export` and restored with `Import`.
-The collected patterns, their include/exclude type and their enabled state are
-preserved. Importing replaces the current layer stack and is available for
-files in the `.conf` or `.json` format.
+The collected patterns, their include/exclude type, their enabled state and
+the number of following lines are preserved. Importing replaces the current
+layer stack and is available for files in the `.conf` or `.json` format.
 
 As an example, to find all exceptions except null pointer exceptions:
 
 1. enter `Exception` in the search input and press Enter
-2. enter `NullPointerException` in the filter layer input, select `Exclude`, and
-   press Enter
+2. enter `NullPointerException` in the filter layer input, select `Exclude`, set
+   `+ 3 lines`, and press Enter
 
 The same operations are available in the log view context menu. Select a text
 fragment and use `Add as include filter layer` or `Add as exclude filter layer`
 to refine the current results from what is visible in the log.
+
+Example files for trying the following-lines option are provided in
+`sample-logs/filter-following-lines.log` together with
+`filter-following-lines-exclude.conf` and
+`filter-following-lines-include.conf`.
 
 *klogg* keeps track of used search patterns and provides autocomplete
 for them. This history can be edited or cleared from the search text box context menu.

@@ -92,11 +92,12 @@ QString LogFilteredData::makeCacheKeyString( const FilterLayers& layers )
 {
     QString key;
     for ( const auto& layer : layers ) {
-        key += QStringLiteral( "%1:%2:%3:%4:%5:" )
+        key += QStringLiteral( "%1:%2:%3:%4:%5:%6:" )
                    .arg( layer.isCaseSensitive ? 1 : 0 )
                    .arg( layer.isExclude ? 1 : 0 )
                    .arg( layer.isBoolean ? 1 : 0 )
                    .arg( layer.isPlainText ? 1 : 0 )
+                   .arg( layer.followingLines )
                    .arg( layer.pattern.size() );
         key += layer.pattern;
     }

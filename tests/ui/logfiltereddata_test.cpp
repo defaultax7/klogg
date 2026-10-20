@@ -656,3 +656,96 @@ SCENARIO( "layered filtering", "[logdata]" )
         }
     }
 }
+
+SCENARIO( "layered filtering with following lines", "[logdata]" )
+{
+    QTemporaryFile file{ "filtered_following_lines_test_XXXXXX" };
+    REQUIRE( file.open() );
+
+    const auto lines = QStringList{
+        QStringLiteral( "ERROR first failure" ),
+        QStringLiteral( "  at first trace line" ),
+        QStringLiteral( "  at second trace line" ),
+        QStringLiteral( "INFO gap between failures" ),
+        QStringLiteral( "ERROR second failure" ),
+        QStringLiteral( "  at third trace line" ),
+        QStringLiteral( "  at fourth trace line" ),
+        QStringLiteral( "INFO end" ),
+    };
+
+    for ( const auto& line : lines ) {
+        file.write( line.toUtf8() );
+        file.write( "\n" );
+    }
+    file.flush();
+
+    LogData log_data;
+    SafeQSignalSpy loadEndSpy( &log_data, SIGNAL( loadingFinished( LoadingStatus ) ) );
+    log_data.attachFile( file.fileName() );
+    REQUIRE( loadEndSpy.safeWait( 10000 ) );
+
+    auto filtered_data = log_data.getNewFilteredData();
+    SafeQSignalSpy searchProgressSpy{ filtered_data.get(), &LogFilteredData::searchProgressed };
+
+    GIVEN( "an include layer with following lines" )
+    {
+        const auto includeErrors
+            = RegularExpressionPattern( "ERROR", true, false, false, false, 2 );
+
+        runSearch( filtered_data.get(), FilterLayers{ includeErrors }, searchProgressSpy );
+
+        THEN( "matching lines and the requested number of following lines are included" )
+        {
+            REQUIRE( filtered_data->getNbMatches() == 6_lcount );
+
+            const auto matchedLines
+                = filtered_data->getExpandedLines( 0_lnum, filtered_data->getNbMatches() );
+            REQUIRE( matchedLines[ 0 ].contains( "first failure" ) );
+            REQUIRE( matchedLines[ 1 ].contains( "first trace line" ) );
+            REQUIRE( matchedLines[ 2 ].contains( "second trace line" ) );
+            REQUIRE( matchedLines[ 3 ].contains( "second failure" ) );
+            REQUIRE( matchedLines[ 4 ].contains( "third trace line" ) );
+            REQUIRE( matchedLines[ 5 ].contains( "fourth trace line" ) );
+        }
+    }
+
+    GIVEN( "an exclude layer with following lines" )
+    {
+        const auto includeErrors
+            = RegularExpressionPattern( "ERROR", true, false, false, false, 2 );
+        const auto excludeFirstFailure
+            = RegularExpressionPattern( "first failure", true, true, false, false, 2 );
+
+        runSearch( filtered_data.get(),
+                   FilterLayers{ includeErrors, excludeFirstFailure }, searchProgressSpy );
+
+        THEN( "the matching line and following lines are removed" )
+        {
+            REQUIRE( filtered_data->getNbMatches() == 3_lcount );
+
+            const auto matchedLines
+                = filtered_data->getExpandedLines( 0_lnum, filtered_data->getNbMatches() );
+            REQUIRE( matchedLines[ 0 ].contains( "second failure" ) );
+            REQUIRE( matchedLines[ 1 ].contains( "third trace line" ) );
+            REQUIRE( matchedLines[ 2 ].contains( "fourth trace line" ) );
+        }
+    }
+
+    GIVEN( "a chunk size smaller than the requested following lines" )
+    {
+        const auto previousBufferSize = Configuration::get().searchReadBufferSizeLines();
+        Configuration::get().setSearchReadBufferSizeLines( 1 );
+
+        const auto includeErrors
+            = RegularExpressionPattern( "ERROR", true, false, false, false, 2 );
+
+        runSearch( filtered_data.get(), FilterLayers{ includeErrors }, searchProgressSpy );
+
+        THEN( "following lines are still detected across chunk boundaries" )
+        {
+            REQUIRE( filtered_data->getNbMatches() == 6_lcount );
+        }
+
+        Configuration::get().setSearchReadBufferSizeLines( previousBufferSize );
+    }
+}

@@ -1,0 +1,37 @@
+2026-01-01 10:00:00.000 INFO  Application started
+2026-01-01 10:00:01.100 INFO  Handling request id=100
+2026-01-01 10:00:01.110 ERROR Failed to process request id=100: NullPointerException
+2026-01-01 10:00:01.111 ERROR java.lang.NullPointerException: user is null
+2026-01-01 10:00:01.111 ERROR     at com.example.UserService.find(UserService.java:42)
+2026-01-01 10:00:01.111 ERROR     at com.example.Api.handle(Api.java:101)
+2026-01-01 10:00:01.112 ERROR     at com.example.Server.serve(Server.java:55)
+2026-01-01 10:00:01.200 INFO  Recovered from request id=100
+2026-01-01 10:00:02.100 INFO  Handling request id=200
+2026-01-01 10:00:02.110 ERROR Failed to process request id=200: RuntimeException
+2026-01-01 10:00:02.111 ERROR java.lang.RuntimeException: downstream timeout
+2026-01-01 10:00:02.111 ERROR     at com.example.Remote.call(Remote.java:88)
+2026-01-01 10:00:02.111 ERROR     at com.example.Api.handle(Api.java:120)
+2026-01-01 10:00:02.112 ERROR     at com.example.Server.serve(Server.java:55)
+2026-01-01 10:00:02.113 ERROR Caused by: java.io.IOException: connection reset
+2026-01-01 10:00:02.113 ERROR     at com.example.Socket.read(Socket.java:19)
+2026-01-01 10:00:02.113 ERROR     at com.example.Remote.call(Remote.java:91)
+2026-01-01 10:00:02.200 INFO  Recovered from request id=200
+2026-01-01 10:00:03.100 INFO  Handling request id=300
+2026-01-01 10:00:03.110 ERROR Failed to process request id=300: IllegalArgumentException
+2026-01-01 10:00:03.111 ERROR java.lang.IllegalArgumentException: bad user id
+2026-01-01 10:00:03.111 ERROR     at com.example.Validator.check(Validator.java:17)
+2026-01-01 10:00:03.111 ERROR     at com.example.Api.handle(Api.java:77)
+2026-01-01 10:00:03.200 INFO  Recovered from request id=300
+2026-01-01 10:00:04.100 INFO  Handling request id=400
+2026-01-01 10:00:04.110 ERROR Failed to process request id=400: NullPointerException
+2026-01-01 10:00:04.111 ERROR java.lang.NullPointerException: config is null
+2026-01-01 10:00:04.111 ERROR     at com.example.Config.load(Config.java:12)
+2026-01-01 10:00:04.111 ERROR     at com.example.Server.start(Server.java:30)
+2026-01-01 10:00:04.200 INFO  Recovered from request id=400
+2026-01-01 10:00:05.100 INFO  Handling request id=500
+2026-01-01 10:00:05.110 ERROR Failed to process request id=500: RuntimeException
+2026-01-01 10:00:05.111 ERROR java.lang.RuntimeException: worker crashed
+2026-01-01 10:00:05.111 ERROR     at com.example.Worker.run(Worker.java:64)
+2026-01-01 10:00:05.111 ERROR     at java.lang.Thread.run(Thread.java:829)
+2026-01-01 10:00:05.200 INFO  Recovered from request id=500
+2026-01-01 10:00:06.000 INFO  Application stopped

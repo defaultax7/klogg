@@ -1647,7 +1647,8 @@ bool CrawlerWidget::buildFilterLayers( const QString& basePattern, FilterLayers&
         // are not used here.
         const auto layerPattern
             = RegularExpressionPattern( layer.pattern, matchCaseButton_->isChecked(),
-                                        layer.isExclude, false, !useRegexpButton_->isChecked() );
+                                        layer.isExclude, false, !useRegexpButton_->isChecked(),
+                                        layer.followingLines );
         if ( !validateLayer( layerPattern, tr( "filter layer %1" ).arg( index + 1 ) ) ) {
             return false;
         }

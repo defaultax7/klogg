@@ -35,6 +35,7 @@ struct RegularExpressionPattern {
     bool isExclude = false;
     bool isBoolean = false;
     bool isPlainText = false;
+    int followingLines = 0;
     bool isPrefilter = false;
 
     RegularExpressionPattern() = default;
@@ -45,12 +46,13 @@ struct RegularExpressionPattern {
     }
 
     RegularExpressionPattern( const QString& expression, bool caseSensitive, bool inverse,
-                              bool boolean, bool plainText )
+                              bool boolean, bool plainText, int following = 0 )
         : pattern( expression )
         , isCaseSensitive( caseSensitive )
         , isExclude( inverse )
         , isBoolean( boolean )
         , isPlainText( plainText )
+        , followingLines( following )
         , patternId_( nextId() )
     {
     }
@@ -79,9 +81,10 @@ struct RegularExpressionPattern {
 
     bool operator==( const RegularExpressionPattern& other ) const
     {
-        return std::tie( pattern, isCaseSensitive, isExclude, isBoolean, isPlainText )
-               == std::tie( other.pattern, other.isCaseSensitive, isExclude, isBoolean,
-                            isPlainText );
+        return std::tie( pattern, isCaseSensitive, isExclude, isBoolean, isPlainText,
+                         followingLines )
+               == std::tie( other.pattern, other.isCaseSensitive, other.isExclude,
+                            other.isBoolean, other.isPlainText, other.followingLines );
     }
 
   private:
