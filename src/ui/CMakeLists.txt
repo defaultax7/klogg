@@ -19,6 +19,7 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/mainwindow.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/mainwindowtext.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/menu.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/openurldialog.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/optionsdialog.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/overview.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/overviewwidget.h
@@ -71,6 +72,7 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/mainwindow.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/mainwindowtext.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/menu.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/openurldialog.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/optionsdialog.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/overview.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/overviewwidget.cpp

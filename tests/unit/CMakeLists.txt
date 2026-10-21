@@ -2,6 +2,7 @@
 add_executable(klogg_tests
     favoritefiles_test.cpp
     linepositionarray_test.cpp
+    openurldialog_test.cpp
     patternmatcher_test.cpp
     remotetail_test.cpp
     tests_main.cpp

@@ -96,6 +96,7 @@
 #include "logger.h"
 #include "mainwindowtext.h"
 #include "openfilehelper.h"
+#include "openurldialog.h"
 #include "optionsdialog.h"
 #include "predefinedfiltersdialog.h"
 #include "progress.h"
@@ -106,7 +107,6 @@
 #include "shortcuts.h"
 #include "styles.h"
 #include "tabbedcrawlerwidget.h"
-#include "windowscredentials.h"
 
 namespace {
 
@@ -1191,73 +1191,22 @@ void MainWindow::openClipboard()
 
 void MainWindow::openUrl()
 {
-    bool ok;
     const auto urlInClipboard = QUrl::fromUserInput( QApplication::clipboard()->text() );
     const auto selectedUrl = urlInClipboard.isValid() ? urlInClipboard.toString() : QString{};
 
-    QString url
-        = QInputDialog::getText( this, tr( "Open URL as log file" ),
-                                 tr( "URL to download or ssh://user@host/path:" ),
-                                 QLineEdit::Normal, selectedUrl, &ok );
-    if ( !ok || url.isEmpty() ) {
+    OpenUrlDialog dialog( this );
+    dialog.setUrl( selectedUrl );
+    if ( dialog.exec() != QDialog::Accepted ) {
         return;
     }
 
-    if ( !isSshUrl( url ) ) {
-        openRemoteFile( url );
-        return;
-    }
-
-    const QUrl sshUrl{ url };
-    if ( sshUrl.host().isEmpty() || sshUrl.path().isEmpty() ) {
-        QMessageBox::warning( this, tr( "Open SSH log" ),
-                              tr( "SSH URL must have the form ssh://user@host/path" ) );
-        return;
-    }
-
-    QUrl remoteUrl = sshUrl;
-#ifdef Q_OS_WIN
-    QUrlQuery urlQuery{ sshUrl };
-    const auto defaultTarget
-        = urlQuery.hasQueryItem( QStringLiteral( "credential" ) )
-              ? urlQuery.queryItemValue( QStringLiteral( "credential" ), QUrl::FullyDecoded )
-              : defaultSshCredentialTarget( sshUrl );
-
-    bool credentialOk = false;
-    const auto credentialTarget = QInputDialog::getText(
-        this, tr( "Windows Credential Manager" ),
-        tr( "Credential target (leave empty to use SSH keys or ssh-agent):\n\n"
-            "For disposable test servers, add ?hostKeyChecking=no to the URL." ),
-        QLineEdit::Normal, defaultTarget, &credentialOk );
-    if ( !credentialOk ) {
-        return;
-    }
-
-    urlQuery.removeAllQueryItems( QStringLiteral( "credential" ) );
-    const auto trimmedTarget = credentialTarget.trimmed();
-    const auto useCredential
-        = !trimmedTarget.isEmpty()
-          && trimmedTarget.compare( QStringLiteral( "none" ), Qt::CaseInsensitive ) != 0;
-    if ( useCredential ) {
-        if ( !windowsCredentialExists( trimmedTarget ) ) {
-            QMessageBox::warning(
-                this, tr( "Windows Credential Manager" ),
-                tr( "No credential found for target \"%1\".\n\n"
-                    "Create one with:\n"
-                    "cmdkey /generic:\"%1\" /user:<user> /pass:<password>" )
-                    .arg( trimmedTarget ) );
-            return;
-        }
-        urlQuery.addQueryItem( QStringLiteral( "credential" ), trimmedTarget );
+    const auto url = dialog.url();
+    if ( isSshUrl( url ) ) {
+        loadFile( url );
     }
     else {
-        urlQuery.addQueryItem( QStringLiteral( "credential" ), QStringLiteral( "none" ) );
+        openRemoteFile( url );
     }
-
-    remoteUrl.setQuery( urlQuery );
-#endif
-
-    loadFile( remoteUrl.toString( QUrl::FullyEncoded ) );
 }
 
 // Opens the 'Highlighters' dialog box

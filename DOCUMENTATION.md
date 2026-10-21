@@ -180,6 +180,16 @@ download the file to a temporary directory and open it from there.
 ssh://user@host/absolute/path/to/file.log
 ```
 
+The Open URL dialog has these SSH options, all unchecked by default:
+
+* `Use Windows Credential Manager` -- when unchecked, SSH keys or ssh-agent
+  are used; when checked, the credential target field is enabled
+* `Disable SSH host key checking (insecure)` -- unchecked by default
+* `Require strict SSH host key checking` -- unchecked by default
+
+With both host-key checkboxes unchecked, new host keys are accepted and
+changed host keys are rejected.
+
 The remote file is read with `tail -F` and streamed to a local temporary file,
 so the normal *klogg* follow mode keeps showing new lines as they are appended
 remotely. New SSH host keys are accepted automatically, while changed host keys
@@ -201,8 +211,9 @@ This makes SSH use a temporary known_hosts file, leaving the real
 it removes protection against man-in-the-middle attacks. Supported values are
 `accept-new` (default), `yes`/`strict`, and `no`/`off`/`insecure`.
 
-On Windows the password can be read from Windows Credential Manager. The
-default target name is:
+On Windows the password can be read from Windows Credential Manager. Check
+`Use Windows Credential Manager` in the Open URL dialog and use the default
+target name:
 
 ```
 klogg-ssh:user@host
@@ -216,8 +227,13 @@ cmdkey /generic:"klogg-ssh:user@host" /user:user /pass:<password>
 ```
 
 Alternatively use the Windows Credential Manager control panel and add a
-*Generic Credential* with that target. The credential target can be overridden
-with the `?credential=<target>` URL query parameter:
+*Generic Credential* with that target. When an SSH URL is opened from the
+command line or from recent files without a `credential` option, this default
+target is used automatically if it exists. Use `?credential=none` to force
+SSH keys or ssh-agent.
+
+The credential target can be overridden with the `?credential=<target>` URL
+query parameter:
 
 ```
 ssh://user@host/var/log/application.log?credential=my-ssh-credential
@@ -226,10 +242,11 @@ ssh://user@host/var/log/application.log?credential=my-ssh-credential
 On Linux and macOS, SSH keys or ssh-agent are used instead of Windows
 Credential Manager.
 
-Leave the credential target empty in the Open URL dialog (or use
-`?credential=none`) to use SSH keys or ssh-agent instead. The credential
-password is only passed to the `ssh` process through an SSH askpass helper;
-it is never written to disk.
+Leave `Use Windows Credential Manager` unchecked in the Open URL dialog (or use
+`?credential=none`) to use SSH keys or ssh-agent instead. Existing URL query
+options are reflected in the dialog when it opens. The credential password is
+only passed to the `ssh` process through an SSH askpass helper; it is never
+written to disk.
 
 #### Recent files
 
