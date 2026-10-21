@@ -92,6 +92,7 @@ const char* action::showScratchPadText = QT_TR_NOOP( "Scratchpad" );
 const char* action::showScratchPadStatusTip = QT_TR_NOOP( "Show the scratchpad" );
 const char* action::addToFavoritesText = QT_TR_NOOP( "Add to favorites" );
 const char* action::removeFromFavoritesText = QT_TR_NOOP( "Remove from favorites..." );
+const char* action::renameFavoriteText = QT_TR_NOOP( "Rename favorite..." );
 const char* action::selectOpenFileText = QT_TR_NOOP( "Switch to opened file..." );
 const char* action::predefinedFiltersDialogText = QT_TR_NOOP( "Predefined filters..." );
 const char* action::predefinedFiltersDialogStatusTip

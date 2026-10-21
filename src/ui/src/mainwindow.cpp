@@ -419,6 +419,7 @@ void MainWindow::reTranslateUI()
     addToFavoritesMenuAction->setText( transAction( action::addToFavoritesText ) );
 
     removeFromFavoritesAction->setText( transAction( action::removeFromFavoritesText ) );
+    renameFavoriteAction->setText( transAction( action::renameFavoriteText ) );
 
     selectOpenFileAction->setText( transAction( action::selectOpenFileText ) );
 
@@ -666,6 +667,10 @@ void MainWindow::createActions()
     removeFromFavoritesAction = new QAction( tr( action::removeFromFavoritesText ), this );
     connect( removeFromFavoritesAction, &QAction::triggered, this,
              [ this ]( auto ) { this->removeFromFavorites(); } );
+
+    renameFavoriteAction = new QAction( tr( action::renameFavoriteText ), this );
+    connect( renameFavoriteAction, &QAction::triggered, this,
+             [ this ]( auto ) { this->renameFavorite(); } );
 
     selectOpenFileAction = new QAction( tr( action::selectOpenFileText ), this );
     connect( selectOpenFileAction, &QAction::triggered, this,
@@ -2083,6 +2088,7 @@ void MainWindow::updateFavoritesMenu()
 
     favoritesMenu->addAction( addToFavoritesMenuAction );
     favoritesMenu->addAction( removeFromFavoritesAction );
+    favoritesMenu->addAction( renameFavoriteAction );
 
     addToFavoritesMenuAction->setIcon( iconLoader_.load( "icons8-star" ) );
 
@@ -2099,6 +2105,7 @@ void MainWindow::updateFavoritesMenu()
     addToFavoritesAction->setEnabled( crawler != nullptr );
     addToFavoritesMenuAction->setEnabled( crawler != nullptr );
     removeFromFavoritesAction->setEnabled( !favorites.empty() );
+    renameFavoriteAction->setEnabled( !favorites.empty() );
 
     if ( crawler ) {
         const auto path = session_.getFilename( crawler );
@@ -2146,39 +2153,51 @@ void MainWindow::addToFavorites()
 
 void MainWindow::removeFromFavorites()
 {
-    const auto& favoriteFiles = FavoriteFiles::get();
-    const auto& favorites = favoriteFiles.favorites();
-    QStringList files;
-    std::transform( favorites.cbegin(), favorites.cend(), std::back_inserter( files ),
-                    []( const auto& f ) { return f.nativeFullPath(); } );
+    auto& favoriteFiles = FavoriteFiles::get();
+    const auto favorites = favoriteFiles.favorites();
+    if ( favorites.empty() ) {
+        return;
+    }
 
+    QStringList items;
     auto currentIndex = 0;
+    const auto currentPath
+        = currentCrawlerWidget() ? session_.getFilename( currentCrawlerWidget() ) : QString{};
 
-    if ( const auto crawler = currentCrawlerWidget() ) {
-        const auto currentPath = session_.getFilename( crawler );
-        const auto currentItem
-            = std::find_if( favorites.begin(), favorites.end(), FullPathComparator( currentPath ) );
-        if ( currentItem != favorites.end() ) {
-            currentIndex = static_cast<int>( std::distance( favorites.begin(), currentItem ) );
+    for ( auto i = 0; i < klogg::isize( favorites ); ++i ) {
+        const auto& favorite = favorites.at( i );
+        const auto label = favorite.customDisplayName().isEmpty()
+                               ? favorite.nativeFullPath()
+                               : QStringLiteral( "%1 — %2" ).arg( favorite.displayName(),
+                                                                   favorite.nativeFullPath() );
+        items.append( label );
+        if ( favorite.fullPath() == currentPath ) {
+            currentIndex = i;
         }
     }
 
     bool ok = false;
-    const auto pathToRemove = QInputDialog::getItem( this, tr( "Remove from favorites" ),
-                                                     tr( "Select item to remove from favorites" ),
-                                                     files, currentIndex, false, &ok );
-    if ( ok ) {
-        removeFromFavorites( pathToRemove );
+    const auto selectedItem
+        = QInputDialog::getItem( this, tr( "Remove from favorites" ),
+                                 tr( "Select item to remove from favorites" ), items, currentIndex,
+                                 false, &ok );
+    if ( !ok ) {
+        return;
+    }
+
+    const auto selectedIndex = items.indexOf( selectedItem );
+    if ( selectedIndex >= 0 ) {
+        removeFromFavorites( favorites.at( selectedIndex ).fullPath() );
     }
 }
 
 void MainWindow::removeFromFavorites( const QString& pathToRemove )
 {
     auto& favoriteFiles = FavoriteFiles::get();
-    const auto& favorites = favoriteFiles.favorites();
+    const auto favorites = favoriteFiles.favorites();
     const auto selectedFile = std::find_if( favorites.begin(), favorites.end(),
                                             [ pathToRemove ]( const DisplayFilePath& f ) {
-                                                return f.nativeFullPath() == pathToRemove;
+                                                return f.fullPath() == pathToRemove;
                                             } );
 
     if ( selectedFile != favorites.end() ) {
@@ -2186,6 +2205,61 @@ void MainWindow::removeFromFavorites( const QString& pathToRemove )
         favoriteFiles.save();
         updateFavoritesMenu();
     }
+}
+
+void MainWindow::renameFavorite()
+{
+    auto& favoriteFiles = FavoriteFiles::get();
+    const auto favorites = favoriteFiles.favorites();
+    if ( favorites.empty() ) {
+        return;
+    }
+
+    QStringList items;
+    auto currentIndex = 0;
+    const auto currentPath
+        = currentCrawlerWidget() ? session_.getFilename( currentCrawlerWidget() ) : QString{};
+
+    for ( auto i = 0; i < klogg::isize( favorites ); ++i ) {
+        const auto& favorite = favorites.at( i );
+        const auto label = favorite.customDisplayName().isEmpty()
+                               ? favorite.nativeFullPath()
+                               : QStringLiteral( "%1 — %2" ).arg( favorite.displayName(),
+                                                                   favorite.nativeFullPath() );
+        items.append( label );
+        if ( favorite.fullPath() == currentPath ) {
+            currentIndex = i;
+        }
+    }
+
+    bool ok = false;
+    const auto selectedItem
+        = QInputDialog::getItem( this, tr( "Rename favorite" ),
+                                 tr( "Select favorite to rename" ), items, currentIndex,
+                                 false, &ok );
+    if ( !ok ) {
+        return;
+    }
+
+    const auto selectedIndex = items.indexOf( selectedItem );
+    if ( selectedIndex < 0 ) {
+        return;
+    }
+
+    const auto& favorite = favorites.at( selectedIndex );
+
+    bool nameOk = false;
+    const auto newName = QInputDialog::getText(
+        this, tr( "Rename favorite" ),
+        tr( "New favorite name (leave empty to use the default display name):" ),
+        QLineEdit::Normal, favorite.customDisplayName(), &nameOk );
+    if ( !nameOk ) {
+        return;
+    }
+
+    favoriteFiles.rename( favorite.fullPath(), newName );
+    favoriteFiles.save();
+    updateFavoritesMenu();
 }
 
 void MainWindow::removeFromRecent( const QString& pathToRemove )

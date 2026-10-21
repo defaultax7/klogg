@@ -133,6 +133,7 @@ class MainWindow : public QMainWindow {
     void encodingChanged( QAction* action );
     void addToFavorites();
     void removeFromFavorites();
+    void renameFavorite();
     void selectOpenedFile();
     void generateDump();
 
@@ -282,6 +283,7 @@ class MainWindow : public QMainWindow {
     QAction* addToFavoritesAction;
     QAction* addToFavoritesMenuAction;
     QAction* removeFromFavoritesAction;
+    QAction* renameFavoriteAction;
     QAction* selectOpenFileAction;
     QAction* recentFilesCleanup;
     QActionGroup* favoritesGroup;

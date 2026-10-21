@@ -33,6 +33,7 @@ class FavoriteFiles final : public Persistable<FavoriteFiles, session_settings>
 
     void add( const QString& path );
     void remove( const QString& path );
+    void rename( const QString& path, const QString& displayName );
 
     std::vector<DisplayFilePath> favorites() const;
 
@@ -46,6 +47,8 @@ class FavoriteFiles final : public Persistable<FavoriteFiles, session_settings>
     }
 
   private:
+    void sortFavorites();
+
     std::vector<DisplayFilePath> files_;
 };
 

@@ -87,6 +87,7 @@ extern const char* showScratchPadText;
 extern const char* showScratchPadStatusTip;
 extern const char* addToFavoritesText;
 extern const char* removeFromFavoritesText;
+extern const char* renameFavoriteText;
 extern const char* selectOpenFileText;
 extern const char* predefinedFiltersDialogText;
 extern const char* predefinedFiltersDialogStatusTip;

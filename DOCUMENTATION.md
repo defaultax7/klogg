@@ -244,6 +244,11 @@ Opened files can be added to the `Favorites` menu either from
 This menu is used to provide fast access to files that are opened less
 often and don't end up in the recent files section.
 
+Favorites can be given a custom name with `Favorites->Rename favorite...`.
+This is useful when several files have the same file name or when the path is
+long. Clearing the name restores the default display name. Favorites are
+sorted by their displayed name.
+
 #### Clipboard
 
 Pasting text from the clipboard to *klogg* also works. In this case, *klogg*

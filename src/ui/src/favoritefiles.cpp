@@ -19,11 +19,13 @@
 
 #include <QSettings>
 
+#include <algorithm>
+
 #include "favoritefiles.h"
 #include "log.h"
 
 namespace {
-constexpr const int FavoriteFilesVersion = 1;
+constexpr const int FavoriteFilesVersion = 2;
 }
 
 void FavoriteFiles::add( const QString& path )
@@ -32,20 +34,40 @@ void FavoriteFiles::add( const QString& path )
         return;
     }
 
-    auto newFile = DisplayFilePath( path );
-
-    auto lowerBound = std::lower_bound( files_.begin(), files_.end(), newFile,
-                                        []( const DisplayFilePath& lhs, const DisplayFilePath& rhs ) {
-                                            return lhs.displayName() < rhs.displayName();
-                                        } );
-
-    files_.insert( lowerBound, newFile );
+    files_.emplace_back( path );
+    sortFavorites();
 }
 
 void FavoriteFiles::remove( const QString& path )
 {
-    auto existingFile = std::find_if( files_.begin(), files_.end(), FullPathComparator( path ) );
-    files_.erase( existingFile );
+    const auto existingFile
+        = std::find_if( files_.begin(), files_.end(), FullPathComparator( path ) );
+    if ( existingFile != files_.end() ) {
+        files_.erase( existingFile );
+    }
+}
+
+void FavoriteFiles::rename( const QString& path, const QString& displayName )
+{
+    const auto existingFile
+        = std::find_if( files_.begin(), files_.end(), FullPathComparator( path ) );
+    if ( existingFile == files_.end() ) {
+        return;
+    }
+
+    existingFile->setDisplayName( displayName.trimmed() );
+    sortFavorites();
+}
+
+void FavoriteFiles::sortFavorites()
+{
+    std::sort( files_.begin(), files_.end(),
+               []( const DisplayFilePath& lhs, const DisplayFilePath& rhs ) {
+                   if ( lhs.displayName() == rhs.displayName() ) {
+                       return lhs.fullPath() < rhs.fullPath();
+                   }
+                   return lhs.displayName() < rhs.displayName();
+               } );
 }
 
 std::vector<DisplayFilePath> FavoriteFiles::favorites() const
@@ -64,6 +86,7 @@ void FavoriteFiles::saveToStorage( QSettings& settings ) const
     for ( auto i = 0u; i < files_.size(); ++i ) {
         settings.setArrayIndex( static_cast<int>( i ) );
         settings.setValue( "name", files_.at( i ).fullPath() );
+        settings.setValue( "displayName", files_.at( i ).customDisplayName() );
     }
     settings.endArray();
     settings.endGroup();
@@ -77,14 +100,19 @@ void FavoriteFiles::retrieveFromStorage( QSettings& settings )
 
     if ( settings.contains( "FavoriteFiles/version" ) ) {
         settings.beginGroup( "FavoriteFiles" );
-        if ( settings.value( "version" ).toInt() == FavoriteFilesVersion ) {
+        const auto version = settings.value( "version" ).toInt();
+        if ( version <= FavoriteFilesVersion ) {
             int size = settings.beginReadArray( "favorites" );
             for ( int i = 0; i < size; ++i ) {
                 settings.setArrayIndex( static_cast<int>( i ) );
-                QString path = settings.value( "name" ).toString();
-                files_.emplace_back( path );
+                const auto path = settings.value( "name" ).toString();
+                const auto displayName = settings.value( "displayName" ).toString();
+                if ( !path.isEmpty() ) {
+                    files_.emplace_back( path, displayName );
+                }
             }
             settings.endArray();
+            sortFavorites();
         }
         else {
             LOG_ERROR << "Unknown version of favorite files, ignoring it...";

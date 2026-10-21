@@ -63,8 +63,9 @@ QString shrinkPath( QString fullPath, int limit, QString delimiter = "…" )
 
 } // namespace
 
-DisplayFilePath::DisplayFilePath( const QString& fullPath )
+DisplayFilePath::DisplayFilePath( const QString& fullPath, const QString& customDisplayName )
     : fullPath_( fullPath )
+    , customDisplayName_( customDisplayName )
 {
     const auto url = QUrl( fullPath );
     if ( url.scheme().compare( QStringLiteral( "ssh" ), Qt::CaseInsensitive ) == 0 ) {
@@ -92,7 +93,17 @@ QString DisplayFilePath::nativeFullPath() const
 
 QString DisplayFilePath::displayName() const
 {
-    return displayName_;
+    return customDisplayName_.isEmpty() ? displayName_ : customDisplayName_;
+}
+
+QString DisplayFilePath::customDisplayName() const
+{
+    return customDisplayName_;
+}
+
+void DisplayFilePath::setDisplayName( const QString& displayName )
+{
+    customDisplayName_ = displayName;
 }
 
 FullPathComparator::FullPathComparator( const QString& path )
