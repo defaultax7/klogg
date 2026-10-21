@@ -36,6 +36,23 @@ SCENARIO( "SSH remote tail URL helpers", "[ui]" )
             REQUIRE_FALSE( isSshUrl( QStringLiteral( "https://example.com/app.log" ) ) );
         }
 
+        THEN( "host key checking defaults to accept-new and can be overridden" )
+        {
+            REQUIRE( sshHostKeyChecking( url ) == SshHostKeyChecking::AcceptNew );
+
+            auto strictUrl = url;
+            strictUrl.setQuery( QStringLiteral( "hostKeyChecking=yes" ) );
+            REQUIRE( sshHostKeyChecking( strictUrl ) == SshHostKeyChecking::Strict );
+
+            auto insecureUrl = url;
+            insecureUrl.setQuery( QStringLiteral( "hostKeyChecking=no" ) );
+            REQUIRE( sshHostKeyChecking( insecureUrl ) == SshHostKeyChecking::Disabled );
+
+            auto offUrl = url;
+            offUrl.setQuery( QStringLiteral( "hostKeyChecking=off" ) );
+            REQUIRE( sshHostKeyChecking( offUrl ) == SshHostKeyChecking::Disabled );
+        }
+
         THEN( "the default credential target uses user, host and optional port" )
         {
             REQUIRE( defaultSshCredentialTarget( url )

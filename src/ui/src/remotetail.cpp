@@ -83,6 +83,30 @@ bool isSshUrl( const QString& fileName )
     return QUrl( fileName ).scheme().compare( QStringLiteral( "ssh" ), Qt::CaseInsensitive ) == 0;
 }
 
+SshHostKeyChecking sshHostKeyChecking( const QUrl& url )
+{
+    const QUrlQuery query{ url };
+    if ( !query.hasQueryItem( QStringLiteral( "hostKeyChecking" ) ) ) {
+        return SshHostKeyChecking::AcceptNew;
+    }
+
+    const auto value
+        = query.queryItemValue( QStringLiteral( "hostKeyChecking" ), QUrl::FullyDecoded )
+              .trimmed()
+              .toLower();
+
+    if ( value == QStringLiteral( "yes" ) || value == QStringLiteral( "strict" ) ) {
+        return SshHostKeyChecking::Strict;
+    }
+    if ( value == QStringLiteral( "no" ) || value == QStringLiteral( "off" )
+         || value == QStringLiteral( "false" ) || value == QStringLiteral( "none" )
+         || value == QStringLiteral( "insecure" ) ) {
+        return SshHostKeyChecking::Disabled;
+    }
+
+    return SshHostKeyChecking::AcceptNew;
+}
+
 QString defaultSshCredentialTarget( const QUrl& url )
 {
     if ( !url.isValid() || url.host().isEmpty() ) {
@@ -207,13 +231,46 @@ bool RemoteTail::start( const QUrl& url, QString* errorString )
     const auto useAskPass
         = !credentialTarget.isEmpty() && windowsCredentialExists( credentialTarget );
 
+    const auto hostKeyChecking = sshHostKeyChecking( url );
+
     QStringList arguments;
     arguments << QStringLiteral( "-T" )
               << QStringLiteral( "-o" )
               << ( useAskPass ? QStringLiteral( "BatchMode=no" )
-                              : QStringLiteral( "BatchMode=yes" ) )
-              << QStringLiteral( "-o" ) << QStringLiteral( "StrictHostKeyChecking=accept-new" )
-              << QStringLiteral( "-o" ) << QStringLiteral( "ConnectTimeout=20" )
+                              : QStringLiteral( "BatchMode=yes" ) );
+
+    if ( hostKeyChecking == SshHostKeyChecking::Disabled ) {
+        // Keep this session completely away from the user's real known_hosts
+        // file. This is intended only for disposable test servers.
+        const auto knownHostsFile = tempDir_.filePath( QStringLiteral( "insecure_known_hosts" ) );
+        const auto globalKnownHostsFile
+            = tempDir_.filePath( QStringLiteral( "insecure_global_known_hosts" ) );
+
+        for ( const auto& path : { knownHostsFile, globalKnownHostsFile } ) {
+            QFile file{ path };
+            if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) ) {
+                if ( errorString != nullptr ) {
+                    *errorString = tr( "Failed to create temporary known_hosts file: %1" )
+                                       .arg( file.errorString() );
+                }
+                return false;
+            }
+        }
+
+        arguments << QStringLiteral( "-o" ) << QStringLiteral( "StrictHostKeyChecking=no" )
+                  << QStringLiteral( "-o" )
+                  << QStringLiteral( "UserKnownHostsFile=%1" ).arg( knownHostsFile )
+                  << QStringLiteral( "-o" )
+                  << QStringLiteral( "GlobalKnownHostsFile=%1" ).arg( globalKnownHostsFile );
+    }
+    else if ( hostKeyChecking == SshHostKeyChecking::Strict ) {
+        arguments << QStringLiteral( "-o" ) << QStringLiteral( "StrictHostKeyChecking=yes" );
+    }
+    else {
+        arguments << QStringLiteral( "-o" ) << QStringLiteral( "StrictHostKeyChecking=accept-new" );
+    }
+
+    arguments << QStringLiteral( "-o" ) << QStringLiteral( "ConnectTimeout=20" )
               << QStringLiteral( "-o" ) << QStringLiteral( "ServerAliveInterval=30" )
               << QStringLiteral( "-o" ) << QStringLiteral( "ServerAliveCountMax=3" )
               << QStringLiteral( "-o" ) << QStringLiteral( "NumberOfPasswordPrompts=1" );

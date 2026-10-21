@@ -39,6 +39,16 @@ bool isSshUrl( const QString& fileName );
 // klogg-ssh:user@host or klogg-ssh:user@host:port
 QString defaultSshCredentialTarget( const QUrl& url );
 
+enum class SshHostKeyChecking {
+    Strict,
+    AcceptNew,
+    Disabled,
+};
+
+// Reads the optional hostKeyChecking URL query parameter.
+// Default: AcceptNew. Only disable this for disposable test environments.
+SshHostKeyChecking sshHostKeyChecking( const QUrl& url );
+
 // Runs "ssh ... tail -F" and writes its output to a local spool file that
 // klogg can open as a normal growing log file.
 class RemoteTail : public QObject {

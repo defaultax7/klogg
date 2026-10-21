@@ -189,6 +189,18 @@ are rejected. The same URL can be passed on the command line:
 klogg ssh://user@host/var/log/application.log
 ```
 
+For disposable local test servers whose host key changes on every restart,
+host key verification can be disabled for that URL only:
+
+```
+ssh://user@127.0.0.1:50023/var/log/application.log?hostKeyChecking=no
+```
+
+This makes SSH use a temporary known_hosts file, leaving the real
+`~/.ssh/known_hosts` untouched. **Do not use this for production hosts**, because
+it removes protection against man-in-the-middle attacks. Supported values are
+`accept-new` (default), `yes`/`strict`, and `no`/`off`/`insecure`.
+
 On Windows the password can be read from Windows Credential Manager. The
 default target name is:
 

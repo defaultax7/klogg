@@ -51,6 +51,19 @@ If a library can't be found, the one provided by CPM will be used.
 
 ## Building
 
+### Packaging for Windows
+
+After the project has been configured and built, run:
+
+```
+pack.bat
+```
+
+The script builds `klogg.exe` and `klogg_portable.exe`, deploys Qt and the
+Visual C++ runtime, and creates a shareable ZIP in the `packages` directory.
+Use `pack.bat --release` for a Release package, or `pack.bat --no-zip` to only
+create the package folder. Run `pack.bat --help` for all options.
+
 ### Configuration options
 
 By default Klogg is built without support for reporting crash dumps. This can be enabled via cmake option `-DKLOGG_USE_SENTRY=ON`.

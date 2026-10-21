@@ -1221,7 +1221,8 @@ void MainWindow::openUrl()
     bool credentialOk = false;
     const auto credentialTarget = QInputDialog::getText(
         this, tr( "Windows Credential Manager" ),
-        tr( "Credential target (leave empty to use SSH keys or ssh-agent):" ),
+        tr( "Credential target (leave empty to use SSH keys or ssh-agent):\n\n"
+            "For disposable test servers, add ?hostKeyChecking=no to the URL." ),
         QLineEdit::Normal, defaultTarget, &credentialOk );
     if ( !credentialOk ) {
         return;
@@ -1462,8 +1463,9 @@ void MainWindow::updateLoadingProgress( int progress )
 {
     LOG_DEBUG << "Loading progress: " << progress;
 
-    QString current_file
-        = QDir::toNativeSeparators( session_.getFilename( currentCrawlerWidget() ) );
+    const auto fileName = session_.getFilename( currentCrawlerWidget() );
+    const QString current_file
+        = isSshUrl( fileName ) ? fileName : QDir::toNativeSeparators( fileName );
 
     // We ignore 0% and 100% to avoid a flash when the file (or update)
     // is very short.
@@ -2019,8 +2021,9 @@ void MainWindow::updateInfoLine()
 
     // Following should always work as we will only receive enter
     // this slot if there is a crawler connected.
-    QString current_file
-        = QDir::toNativeSeparators( session_.getFilename( currentCrawlerWidget() ) );
+    const auto fileName = session_.getFilename( currentCrawlerWidget() );
+    const QString current_file
+        = isSshUrl( fileName ) ? fileName : QDir::toNativeSeparators( fileName );
 
     uint64_t fileSize;
     uint64_t fileNbLine;

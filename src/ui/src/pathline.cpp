@@ -24,10 +24,12 @@
 #include <QClipboard>
 #include <QContextMenuEvent>
 #include <QMenu>
+#include <QUrl>
 
 #include "containers.h"
 #include "openfilehelper.h"
 #include "clipboard.h"
+#include "remotetail.h"
 
 void PathLine::setPath( const QString& path )
 {
@@ -38,9 +40,12 @@ void PathLine::contextMenuEvent( QContextMenuEvent* event )
 {
     QMenu menu( this );
 
+    const auto isRemote = isSshUrl( path_ );
+
     auto copyFullPath = menu.addAction( tr( "Copy full path" ) );
     auto copyFileName = menu.addAction( tr( "Copy file name" ) );
     auto openContainingFolder = menu.addAction( tr( "Open containing folder" ) );
+    openContainingFolder->setEnabled( !isRemote );
     menu.addSeparator();
     auto copySelection = menu.addAction( tr( "Copy" ) );
     menu.addSeparator();
@@ -49,7 +54,14 @@ void PathLine::contextMenuEvent( QContextMenuEvent* event )
     connect( copyFullPath, &QAction::triggered, this,
              [ this ]( auto ) { sendTextToClipboard( this->path_ ); } );
 
-    connect( copyFileName, &QAction::triggered, this, [ this ]( auto ) {
+    connect( copyFileName, &QAction::triggered, this, [ this, isRemote ]( auto ) {
+        if ( isRemote ) {
+            const auto remoteName = QUrl( this->path_ ).fileName();
+            if ( !remoteName.isEmpty() ) {
+                sendTextToClipboard( remoteName );
+                return;
+            }
+        }
         sendTextToClipboard( QFileInfo( this->path_ ).fileName() );
     } );
 

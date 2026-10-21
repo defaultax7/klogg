@@ -60,3 +60,6 @@ cmake-build-relwithdebinfo/
 #website
 website/hugo
 website/resources/
+
+# Local distribution packages
+packages/
